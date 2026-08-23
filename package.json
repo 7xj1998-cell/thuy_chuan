@@ -1,0 +1,32 @@
+{
+  "name": "so-thuy-chuan",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run --pool=vmThreads",
+    "preview": "vite preview",
+    "cap:sync": "npm run build && cap sync",
+    "android": "npm run cap:sync && cap open android",
+    "ios": "npm run cap:sync && cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "latest",
+    "@capacitor/filesystem": "latest",
+    "@capacitor/share": "latest",
+    "lucide-react": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "xlsx": "latest"
+  },
+  "devDependencies": {
+    "@capacitor/android": "latest",
+    "@capacitor/cli": "latest",
+    "@capacitor/ios": "latest",
+    "@vitejs/plugin-react": "latest",
+    "vite": "latest",
+    "vitest": "latest"
+  }
+}

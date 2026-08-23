@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Sổ thủy chuẩn</string>
+    <string name="title_activity_main">Sổ thủy chuẩn</string>
+    <string name="package_name">vn.lebao.sothuychuan</string>
+    <string name="custom_url_scheme">vn.lebao.sothuychuan</string>
+</resources>
