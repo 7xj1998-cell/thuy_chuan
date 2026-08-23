@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { calculateRoute, compareRoutes, listRoutePoints } from './calc';
+import { calculateRoute, compareRoutes, listRoutePoints, uppercaseName } from './calc';
 
 describe('tính chuyền cao độ', () => {
+  it('chuẩn hóa tên mốc và tên điểm thành chữ hoa', () => {
+    expect(uppercaseName('dg5')).toBe('DG5');
+    expect(uppercaseName('điểm tp1')).toBe('ĐIỂM TP1');
+  });
+
   it('tính đúng ví dụ DG5 đến DC11', () => {
     const result = calculateRoute('DG5', '2548', [{ id: '1', bs: '660', fs: '2000', point: 'DC11' }]);
     expect(result[0].hi).toBe(3208);

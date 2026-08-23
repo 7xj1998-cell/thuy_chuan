@@ -23,6 +23,8 @@ npm run cap:sync
 
 Dữ liệu sổ lưu cục bộ trên thiết bị. Chức năng Excel dùng để sao lưu hoặc chuyển sổ giữa các máy.
 
+Tên mốc và tên điểm được tự động chuẩn hóa thành chữ in hoa trên web, Android và iOS, kể cả dữ liệu mở từ sổ cũ hoặc nhập từ Excel.
+
 File Excel gồm các sheet **Thông tin**, **Tất cả điểm**, **Lượt đi** và **Lượt về**. Sheet **Tất cả điểm** liệt kê mốc đầu, toàn bộ TP/TV trung gian và các mốc DG/DC cùng cao độ theo đúng thứ tự đo.
 
 ## Tải APK từ GitHub

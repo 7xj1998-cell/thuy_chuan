@@ -4,7 +4,7 @@ import { Capacitor } from '@capacitor/core';
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { BookOpen, Download, FileUp, FolderOpen, Plus, Save, Trash2 } from 'lucide-react';
-import { calculateRoute, compareRoutes, format, listRoutePoints, station, uid } from './calc';
+import { calculateRoute, compareRoutes, format, listRoutePoints, station, uid, uppercaseName } from './calc';
 import './styles.css';
 import './mobile-fixes.css';
 
@@ -14,7 +14,14 @@ const makeBook = () => ({
   startName: 'DG5', startElevation: '2548', endName: 'DC11',
   outward: [station('DC11')], returning: [station('DG5')], updatedAt: Date.now()
 });
-const loadBooks = () => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; } };
+const normalizeBookNames = (book) => ({
+  ...book,
+  startName: uppercaseName(book.startName),
+  endName: uppercaseName(book.endName),
+  outward: (book.outward || []).map((row) => ({ ...row, point: uppercaseName(row.point) })),
+  returning: (book.returning || []).map((row) => ({ ...row, point: uppercaseName(row.point) }))
+});
+const loadBooks = () => { try { return (JSON.parse(localStorage.getItem(STORAGE_KEY)) || []).map(normalizeBookNames); } catch { return []; } };
 const saveBooks = (books) => localStorage.setItem(STORAGE_KEY, JSON.stringify(books));
 
 function App() {
@@ -49,7 +56,7 @@ function App() {
     setBook(saved); setBooks(next); saveBooks(next); setMessage('Đã lưu sổ trên thiết bị');
   }
   function newBook() { if (!confirm('Tạo sổ mới? Số liệu chưa lưu sẽ bị bỏ.')) return; setBook(makeBook()); setTab('outward'); }
-  function openBook(id) { const found = books.find((item) => item.id === id); if (found) setBook(structuredClone(found)); }
+  function openBook(id) { const found = books.find((item) => item.id === id); if (found) setBook(normalizeBookNames(structuredClone(found))); }
 
   async function exportExcel() {
     const XLSX = await import('xlsx');
@@ -84,11 +91,11 @@ function App() {
       const XLSX = await import('xlsx');
       const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
       if (workbook.Props?.Comments) {
-        const restored = JSON.parse(workbook.Props.Comments); restored.id = uid(); restored.name += ' (nhập)'; setBook(restored);
+        const restored = JSON.parse(workbook.Props.Comments); restored.id = uid(); restored.name += ' (nhập)'; setBook(normalizeBookNames(restored));
       } else {
         const info = XLSX.utils.sheet_to_json(workbook.Sheets['Thông tin'])[0];
         const readRows = (name) => XLSX.utils.sheet_to_json(workbook.Sheets[name] || {}).map((r) => ({ id: uid(), point: String(r['Điểm sau'] || ''), bs: String(r.BS ?? ''), fs: String(r.FS ?? '') }));
-        setBook({ ...makeBook(), name: info?.['Tên sổ'] || file.name, startName: info?.['Mốc đầu'] || '', startElevation: String(info?.['Cao độ đầu (mm)'] ?? ''), endName: info?.['Mốc cuối'] || '', outward: readRows('Lượt đi'), returning: readRows('Lượt về') });
+        setBook(normalizeBookNames({ ...makeBook(), name: info?.['Tên sổ'] || file.name, startName: info?.['Mốc đầu'] || '', startElevation: String(info?.['Cao độ đầu (mm)'] ?? ''), endName: info?.['Mốc cuối'] || '', outward: readRows('Lượt đi'), returning: readRows('Lượt về') }));
       }
       setMessage('Đã nhập dữ liệu Excel');
     } catch { alert('File Excel không đúng định dạng sổ thủy chuẩn.'); }
@@ -102,9 +109,9 @@ function App() {
     <main>
       <section className="card book-info">
         <label className="wide">Tên sổ<input value={book.name} onChange={(e) => patch({ name: e.target.value })}/></label>
-        <label>Mốc đầu<input value={book.startName} onChange={(e) => patch({ startName: e.target.value })}/></label>
+        <label>Mốc đầu<input autoCapitalize="characters" value={book.startName} onChange={(e) => patch({ startName: uppercaseName(e.target.value) })}/></label>
         <label>Cao độ đầu (mm)<input inputMode="decimal" value={book.startElevation} onChange={(e) => patch({ startElevation: e.target.value })}/></label>
-        <label>Mốc cuối<input value={book.endName} onChange={(e) => patch({ endName: e.target.value })}/></label>
+        <label>Mốc cuối<input autoCapitalize="characters" value={book.endName} onChange={(e) => patch({ endName: uppercaseName(e.target.value) })}/></label>
       </section>
       <div className="actions">
         <button onClick={newBook}><Plus/>Mới</button><button className="primary" onClick={saveCurrent}><Save/>Lưu</button>
@@ -121,7 +128,7 @@ function App() {
             <label>Điểm BS<input value={row.fromName} disabled/></label><label>H điểm BS<input value={format(row.fromElevation)} disabled/></label>
             <label>BS (mm)<input className="measure" inputMode="decimal" value={book[direction][index].bs} onChange={(e) => patchRow(direction, row.id, 'bs', e.target.value)}/></label>
             <label>HI<input value={format(row.hi)} disabled/></label><label>FS (mm)<input className="measure" inputMode="decimal" value={book[direction][index].fs} onChange={(e) => patchRow(direction, row.id, 'fs', e.target.value)}/></label>
-            <label>Điểm FS<input value={book[direction][index].point} onChange={(e) => patchRow(direction, row.id, 'point', e.target.value)}/></label>
+            <label>Điểm FS<input autoCapitalize="characters" value={book[direction][index].point} onChange={(e) => patchRow(direction, row.id, 'point', uppercaseName(e.target.value))}/></label>
           </div><div className="calc-line"><span>Δh <b>{format(row.delta)}</b></span><span>H({row.point || '?'}) <b>{format(row.elevation)}</b> mm</span></div>
         </article>)}</section>
         <div className="add-bar"><button className="primary" onClick={() => addRows(direction, 1)}><Plus/>Thêm trạm</button><button onClick={() => { const value = prompt('Số trạm cần thêm (1–200):', '10'); const n = Math.min(200, Math.max(1, Number(value) || 0)); if (value) addRows(direction, n); }}>Thêm nhiều</button></div>

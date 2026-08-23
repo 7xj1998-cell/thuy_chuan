@@ -1,5 +1,7 @@
 export const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 
+export const uppercaseName = (value) => String(value ?? '').toLocaleUpperCase('vi-VN');
+
 export const station = (point = '') => ({ id: uid(), bs: '', fs: '', point });
 
 export function numberOf(value) {
