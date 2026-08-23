@@ -2,7 +2,7 @@ export const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${M
 
 export const uppercaseName = (value) => String(value ?? '').toLocaleUpperCase('vi-VN');
 
-export const station = (point = '') => ({ id: uid(), bs: '', fs: '', point });
+export const station = (point = '') => ({ id: uid(), bs: '', fs: '', distance: '', point });
 
 export function numberOf(value) {
   if (value === '' || value === null || value === undefined) return null;
@@ -56,6 +56,44 @@ export function listRoutePoints(direction, startName, startElevation, route) {
       elevation: row.elevation
     }))
   ];
+}
+
+export function adjustLeveling(outward, returning, closure, coefficient = 20) {
+  const joined = [
+    ...outward.map((row) => ({ ...row, direction: 'Lượt đi' })),
+    ...returning.map((row) => ({ ...row, direction: 'Lượt về' }))
+  ];
+  const distances = joined.map((row) => numberOf(row.distance));
+  const byDistance = joined.length > 0 && distances.every((distance) => distance !== null && distance > 0);
+  const weights = byDistance ? distances : joined.map(() => 1);
+  const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+  const validClosure = numberOf(closure);
+  let cumulativeCorrection = 0;
+  const segments = joined.map((row, index) => {
+    const correction = validClosure !== null && totalWeight > 0 ? -validClosure * weights[index] / totalWeight : null;
+    if (correction !== null) cumulativeCorrection += correction;
+    return {
+      ...row,
+      weight: weights[index],
+      correction,
+      adjustedDelta: row.delta !== null && correction !== null ? row.delta + correction : null,
+      cumulativeCorrection: correction === null ? null : cumulativeCorrection,
+      adjustedElevation: row.elevation !== null && correction !== null ? row.elevation + cumulativeCorrection : null
+    };
+  });
+  const totalDistanceKm = byDistance ? totalWeight / 1000 : null;
+  const allowable = totalDistanceKm !== null && numberOf(coefficient) !== null
+    ? numberOf(coefficient) * Math.sqrt(totalDistanceKm)
+    : null;
+  return {
+    method: byDistance ? 'Theo chiều dài đoạn đo' : 'Theo số trạm máy',
+    byDistance,
+    totalWeight,
+    totalDistanceKm,
+    allowable,
+    passed: allowable === null || validClosure === null ? null : Math.abs(validClosure) <= allowable,
+    segments
+  };
 }
 
 export const format = (value, digits = 3) => value === null || !Number.isFinite(value)

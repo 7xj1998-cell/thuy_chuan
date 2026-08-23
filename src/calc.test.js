@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateRoute, compareRoutes, listRoutePoints, uppercaseName } from './calc';
+import { adjustLeveling, calculateRoute, compareRoutes, listRoutePoints, uppercaseName } from './calc';
 
 describe('tính chuyền cao độ', () => {
   it('chuẩn hóa tên mốc và tên điểm thành chữ hoa', () => {
@@ -30,5 +30,27 @@ describe('tính chuyền cao độ', () => {
       { direction: 'Lượt đi', order: 1, type: 'Điểm trung gian', name: 'TP1', elevation: 2208 },
       { direction: 'Lượt đi', order: 2, type: 'Mốc DG/DC', name: 'DC11', elevation: 708 }
     ]);
+  });
+
+  it('bình sai theo chiều dài và khép đúng về mốc đầu', () => {
+    const outward = [{ point: 'TP1', delta: 100, elevation: 1100, distance: 100 }];
+    const returning = [{ point: 'DG1', delta: -90, elevation: 1010, distance: 300 }];
+    const result = adjustLeveling(outward, returning, 10, 20);
+    expect(result.method).toBe('Theo chiều dài đoạn đo');
+    expect(result.segments[0].correction).toBe(-2.5);
+    expect(result.segments[1].correction).toBe(-7.5);
+    expect(result.segments[1].adjustedElevation).toBe(1000);
+    expect(result.allowable).toBeCloseTo(20 * Math.sqrt(0.4));
+    expect(result.passed).toBe(true);
+  });
+
+  it('thiếu khoảng cách thì bình sai đều theo số trạm', () => {
+    const result = adjustLeveling(
+      [{ point: 'TP1', delta: 5, elevation: 5 }],
+      [{ point: 'DG1', delta: 1, elevation: 6 }],
+      6
+    );
+    expect(result.method).toBe('Theo số trạm máy');
+    expect(result.segments.map((row) => row.correction)).toEqual([-3, -3]);
   });
 });

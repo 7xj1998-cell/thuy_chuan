@@ -27,6 +27,13 @@ Tên mốc và tên điểm được tự động chuẩn hóa thành chữ in h
 
 File Excel gồm các sheet **Thông tin**, **Tất cả điểm**, **Lượt đi** và **Lượt về**. Sheet **Tất cả điểm** liệt kê mốc đầu, toàn bộ TP/TV trung gian và các mốc DG/DC cùng cao độ theo đúng thứ tự đo.
 
+## Bình sai cao độ
+
+- Nhập khoảng cách từng đoạn theo mét để phân phối sai số khép theo chiều dài.
+- Nếu thiếu khoảng cách, ứng dụng tạm phân phối đều theo số trạm máy và hiển thị cảnh báo nghiệp vụ.
+- Sai số cho phép tính theo `C × √K`, trong đó `K` là tổng chiều dài tuyến (km) và `C` mặc định là 20 mm/√km.
+- Kết quả gồm số hiệu chỉnh từng đoạn, chênh cao bình sai và cao độ bình sai từng điểm; Excel có thêm sheet **Bình sai**.
+
 ## Tải APK từ GitHub
 
 Mỗi lần có commit lên nhánh `main`, workflow **Build mobile app** sẽ kiểm thử và build APK Android. Vào **GitHub → Actions → Build mobile app → Artifacts** để tải `so-thuy-chuan-android-debug`.

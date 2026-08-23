@@ -4,14 +4,14 @@ import { Capacitor } from '@capacitor/core';
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { BookOpen, Download, FileUp, FolderOpen, Plus, Save, Trash2 } from 'lucide-react';
-import { calculateRoute, compareRoutes, format, listRoutePoints, station, uid, uppercaseName } from './calc';
+import { adjustLeveling, calculateRoute, compareRoutes, format, listRoutePoints, station, uid, uppercaseName } from './calc';
 import './styles.css';
 import './mobile-fixes.css';
 
 const STORAGE_KEY = 'so-thuy-chuan.books.v1';
 const makeBook = () => ({
   id: uid(), name: `Sổ ${new Date().toLocaleDateString('vi-VN')}`,
-  startName: 'DG5', startElevation: '2548', endName: 'DC11',
+  startName: 'DG5', startElevation: '2548', endName: 'DC11', toleranceCoefficient: '20',
   outward: [station('DC11')], returning: [station('DG5')], updatedAt: Date.now()
 });
 const normalizeBookNames = (book) => ({
@@ -36,6 +36,7 @@ function App() {
   const returning = useMemo(() => calculateRoute(book.endName, endElevation, book.returning), [book.endName, book.returning, endElevation]);
   const closure = returning.at(-1)?.elevation === null ? null : returning.at(-1).elevation - Number(book.startElevation);
   const comparisons = useMemo(() => compareRoutes(outward, returning), [outward, returning]);
+  const adjustment = useMemo(() => adjustLeveling(outward, returning, closure, book.toleranceCoefficient ?? 20), [outward, returning, closure, book.toleranceCoefficient]);
 
   useEffect(() => { if (!message) return; const timer = setTimeout(() => setMessage(''), 2500); return () => clearTimeout(timer); }, [message]);
   const patch = (value) => setBook((old) => ({ ...old, ...value }));
@@ -61,7 +62,7 @@ function App() {
   async function exportExcel() {
     const XLSX = await import('xlsx');
     const info = [{ 'Tên sổ': book.name, 'Mốc đầu': book.startName, 'Cao độ đầu (mm)': book.startElevation, 'Mốc cuối': book.endName, 'Cao độ cuối (mm)': endElevation, 'Sai số khép (mm)': closure }];
-    const rows = (route) => route.map((r, i) => ({ Trạm: i + 1, 'Điểm sau': r.point, 'H điểm BS': r.fromElevation, BS: r.bs, HI: r.hi, FS: r.fs, 'Δh': r.delta, 'H điểm FS': r.elevation }));
+    const rows = (route) => route.map((r, i) => ({ Trạm: i + 1, 'Điểm sau': r.point, 'Khoảng cách (m)': r.distance ?? '', 'H điểm BS': r.fromElevation, BS: r.bs, HI: r.hi, FS: r.fs, 'Δh': r.delta, 'H điểm FS': r.elevation }));
     const pointRows = [
       ...listRoutePoints('Lượt đi', book.startName, book.startElevation, outward),
       ...listRoutePoints('Lượt về', book.endName, endElevation, returning)
@@ -72,9 +73,22 @@ function App() {
       'Tên điểm': point.name,
       'Cao độ (mm)': point.elevation
     }));
+    const adjustmentRows = adjustment.segments.map((row, index) => ({
+      'STT': index + 1,
+      'Lượt đo': row.direction,
+      'Điểm đầu': row.fromName,
+      'Điểm cuối': row.point,
+      'Khoảng cách (m)': row.distance ?? '',
+      'Δh đo (mm)': row.delta,
+      'Số hiệu chỉnh (mm)': row.correction,
+      'Δh bình sai (mm)': row.adjustedDelta,
+      'Hiệu chỉnh lũy kế (mm)': row.cumulativeCorrection,
+      'Cao độ bình sai (mm)': row.adjustedElevation
+    }));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(info), 'Thông tin');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(pointRows), 'Tất cả điểm');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(adjustmentRows), 'Bình sai');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows(outward)), 'Lượt đi');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows(returning)), 'Lượt về');
     workbook.Props = { Comments: JSON.stringify(book) };
@@ -94,7 +108,7 @@ function App() {
         const restored = JSON.parse(workbook.Props.Comments); restored.id = uid(); restored.name += ' (nhập)'; setBook(normalizeBookNames(restored));
       } else {
         const info = XLSX.utils.sheet_to_json(workbook.Sheets['Thông tin'])[0];
-        const readRows = (name) => XLSX.utils.sheet_to_json(workbook.Sheets[name] || {}).map((r) => ({ id: uid(), point: String(r['Điểm sau'] || ''), bs: String(r.BS ?? ''), fs: String(r.FS ?? '') }));
+        const readRows = (name) => XLSX.utils.sheet_to_json(workbook.Sheets[name] || {}).map((r) => ({ id: uid(), point: String(r['Điểm sau'] || ''), distance: String(r['Khoảng cách (m)'] ?? ''), bs: String(r.BS ?? ''), fs: String(r.FS ?? '') }));
         setBook(normalizeBookNames({ ...makeBook(), name: info?.['Tên sổ'] || file.name, startName: info?.['Mốc đầu'] || '', startElevation: String(info?.['Cao độ đầu (mm)'] ?? ''), endName: info?.['Mốc cuối'] || '', outward: readRows('Lượt đi'), returning: readRows('Lượt về') }));
       }
       setMessage('Đã nhập dữ liệu Excel');
@@ -129,21 +143,37 @@ function App() {
             <label>BS (mm)<input className="measure" inputMode="decimal" value={book[direction][index].bs} onChange={(e) => patchRow(direction, row.id, 'bs', e.target.value)}/></label>
             <label>HI<input value={format(row.hi)} disabled/></label><label>FS (mm)<input className="measure" inputMode="decimal" value={book[direction][index].fs} onChange={(e) => patchRow(direction, row.id, 'fs', e.target.value)}/></label>
             <label>Điểm FS<input autoCapitalize="characters" value={book[direction][index].point} onChange={(e) => patchRow(direction, row.id, 'point', uppercaseName(e.target.value))}/></label>
+            <label>Khoảng cách (m)<input inputMode="decimal" placeholder="Không bắt buộc" value={book[direction][index].distance ?? ''} onChange={(e) => patchRow(direction, row.id, 'distance', e.target.value)}/></label>
           </div><div className="calc-line"><span>Δh <b>{format(row.delta)}</b></span><span>H({row.point || '?'}) <b>{format(row.elevation)}</b> mm</span></div>
         </article>)}</section>
         <div className="add-bar"><button className="primary" onClick={() => addRows(direction, 1)}><Plus/>Thêm trạm</button><button onClick={() => { const value = prompt('Số trạm cần thêm (1–200):', '10'); const n = Math.min(200, Math.max(1, Number(value) || 0)); if (value) addRows(direction, n); }}>Thêm nhiều</button></div>
-      </> : <Results book={book} endElevation={endElevation} closure={closure} comparisons={comparisons}/>} 
+      </> : <Results book={book} endElevation={endElevation} closure={closure} comparisons={comparisons} adjustment={adjustment} onCoefficientChange={(value) => patch({ toleranceCoefficient: value })}/>}{/* tab content */}
     </main>
     {message && <div className="toast">{message}</div>}
   </div>;
 }
 
-function Results({ book, endElevation, closure, comparisons }) {
+function Results({ book, endElevation, closure, comparisons, adjustment, onCoefficientChange }) {
   return <section className="results">
     <div className="result-hero"><span>Sai số khép</span><strong className={Math.abs(closure || 0) > 10 ? 'bad' : ''}>{format(closure)} mm</strong><small>H({book.startName}) tính lại − H({book.startName}) ban đầu</small></div>
     <div className="result-grid"><div><span>H({book.startName})</span><b>{format(Number(book.startElevation))} mm</b></div><div><span>H({book.endName})</span><b>{format(endElevation)} mm</b></div><div><span>Chênh cao đi</span><b>{format(endElevation === null ? null : endElevation - Number(book.startElevation))} mm</b></div></div>
+    <Adjustment adjustment={adjustment} closure={closure} coefficient={book.toleranceCoefficient ?? '20'} onCoefficientChange={onCoefficientChange}/>
     <h2>So sánh mốc DG/DC đo hai lần</h2>
     {comparisons.length ? <div className="comparison"><div className="comparison-row heading"><b>Mốc</b><b>Lần 1</b><b>Lần 2</b><b>Lệch</b></div>{comparisons.map((r) => <div className="comparison-row" key={r.name}><b>{r.name}</b><span>{format(r.first)}</span><span>{format(r.second)}</span><b className={Math.abs(r.difference) > 10 ? 'bad' : ''}>{format(r.difference)}</b></div>)}</div> : <p className="empty">Chưa có mốc DG/DC cùng tên ở cả hai lượt. TP và TV được bỏ qua.</p>}
+  </section>;
+}
+
+function Adjustment({ adjustment, closure, coefficient, onCoefficientChange }) {
+  return <section className="adjustment">
+    <div className="adjustment-title"><div><span>BÌNH SAI CAO ĐỘ</span><h2>{adjustment.method}</h2></div><label>Hệ số C (mm/√km)<input inputMode="decimal" value={coefficient} onChange={(e) => onCoefficientChange(e.target.value)}/></label></div>
+    <div className="adjustment-summary">
+      <div><span>Sai số khép</span><b>{format(closure)} mm</b></div>
+      <div><span>Tổng chiều dài</span><b>{adjustment.totalDistanceKm === null ? 'Chưa nhập đủ' : `${format(adjustment.totalDistanceKm)} km`}</b></div>
+      <div><span>Sai số cho phép</span><b>{adjustment.allowable === null ? 'Chưa đánh giá' : `±${format(adjustment.allowable)} mm`}</b></div>
+      <div><span>Đánh giá</span><b className={adjustment.passed === false ? 'bad' : 'good'}>{adjustment.passed === null ? 'Cần đủ khoảng cách' : adjustment.passed ? 'ĐẠT' : 'KHÔNG ĐẠT'}</b></div>
+    </div>
+    {!adjustment.byDistance && <p className="engineering-note">Chưa nhập đủ khoảng cách cho mọi đoạn. Số hiệu chỉnh đang được phân phối đều theo số trạm máy; nhập đầy đủ khoảng cách để bình sai theo chiều dài tuyến.</p>}
+    <div className="adjustment-table"><div className="adjustment-row heading"><b>Điểm</b><b>v (mm)</b><b>Δh BS</b><b>H bình sai</b></div>{adjustment.segments.map((row, index) => <div className="adjustment-row" key={`${row.direction}-${row.id}-${index}`}><span><small>{row.direction}</small><b>{row.point || '—'}</b></span><span>{format(row.correction)}</span><span>{format(row.adjustedDelta)}</span><b>{format(row.adjustedElevation)}</b></div>)}</div>
   </section>;
 }
 
