@@ -23,6 +23,9 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Read app version
+        run: echo "APP_VERSION=v$(node -p \"require('./package.json').version\")" >> "$GITHUB_ENV"
+
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
@@ -44,12 +47,13 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk "../So-do-thuy-chuan_${APP_VERSION}_Android.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v5
         with:
-          name: so-thuy-chuan-android-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: So-do-thuy-chuan_${{ env.APP_VERSION }}_Android
+          path: So-do-thuy-chuan_${{ env.APP_VERSION }}_Android.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -66,6 +70,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      - name: Read app version
+        run: echo "APP_VERSION=v$(node -p \"require('./package.json').version\")" >> "$GITHUB_ENV"
 
       - name: Install dependencies
         run: npm ci
@@ -94,12 +101,12 @@ jobs:
           mkdir -p ipa/Payload
           cp -R ios/App/build/Build/Products/Release-iphoneos/App.app ipa/Payload/
           cd ipa
-          zip -qry So-thuy-chuan-unsigned.ipa Payload
+          zip -qry "So-do-thuy-chuan_${APP_VERSION}_unsigned.ipa" Payload
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v5
         with:
-          name: so-thuy-chuan-ios-unsigned
-          path: ipa/So-thuy-chuan-unsigned.ipa
+          name: So-do-thuy-chuan_${{ env.APP_VERSION }}_unsigned
+          path: ipa/So-do-thuy-chuan_${{ env.APP_VERSION }}_unsigned.ipa
           if-no-files-found: error
           retention-days: 30
