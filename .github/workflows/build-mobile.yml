@@ -24,7 +24,7 @@ jobs:
           cache: npm
 
       - name: Read app version
-        run: echo "APP_VERSION=v$(node -p \"require('./package.json').version\")" >> "$GITHUB_ENV"
+        run: node -p '"APP_VERSION=v"+require("./package.json").version' >> "$GITHUB_ENV"
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -72,7 +72,7 @@ jobs:
           cache: npm
 
       - name: Read app version
-        run: echo "APP_VERSION=v$(node -p \"require('./package.json').version\")" >> "$GITHUB_ENV"
+        run: node -p '"APP_VERSION=v"+require("./package.json").version' >> "$GITHUB_ENV"
 
       - name: Install dependencies
         run: npm ci
