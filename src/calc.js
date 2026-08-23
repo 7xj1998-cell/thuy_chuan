@@ -42,6 +42,20 @@ export function compareRoutes(outward, returning) {
     .map(([name, first]) => ({ name, first, second: b.get(name), difference: b.get(name) - first }));
 }
 
+export function listRoutePoints(direction, startName, startElevation, route) {
+  const classify = (name) => /^(TP|TV)/i.test(name.trim()) ? 'Điểm trung gian' : 'Mốc DG/DC';
+  return [
+    { direction, order: 0, type: classify(startName), name: startName, elevation: numberOf(startElevation) },
+    ...route.map((row, index) => ({
+      direction,
+      order: index + 1,
+      type: classify(row.point),
+      name: row.point,
+      elevation: row.elevation
+    }))
+  ];
+}
+
 export const format = (value, digits = 3) => value === null || !Number.isFinite(value)
   ? '—'
   : new Intl.NumberFormat('vi-VN', { maximumFractionDigits: digits }).format(value);

@@ -4,7 +4,7 @@ import { Capacitor } from '@capacitor/core';
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { BookOpen, Download, FileUp, FolderOpen, Plus, Save, Trash2 } from 'lucide-react';
-import { calculateRoute, compareRoutes, format, station, uid } from './calc';
+import { calculateRoute, compareRoutes, format, listRoutePoints, station, uid } from './calc';
 import './styles.css';
 import './mobile-fixes.css';
 
@@ -55,8 +55,19 @@ function App() {
     const XLSX = await import('xlsx');
     const info = [{ 'Tên sổ': book.name, 'Mốc đầu': book.startName, 'Cao độ đầu (mm)': book.startElevation, 'Mốc cuối': book.endName, 'Cao độ cuối (mm)': endElevation, 'Sai số khép (mm)': closure }];
     const rows = (route) => route.map((r, i) => ({ Trạm: i + 1, 'Điểm sau': r.point, 'H điểm BS': r.fromElevation, BS: r.bs, HI: r.hi, FS: r.fs, 'Δh': r.delta, 'H điểm FS': r.elevation }));
+    const pointRows = [
+      ...listRoutePoints('Lượt đi', book.startName, book.startElevation, outward),
+      ...listRoutePoints('Lượt về', book.endName, endElevation, returning)
+    ].map((point) => ({
+      'Lượt đo': point.direction,
+      'Thứ tự': point.order,
+      'Loại điểm': point.type,
+      'Tên điểm': point.name,
+      'Cao độ (mm)': point.elevation
+    }));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(info), 'Thông tin');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(pointRows), 'Tất cả điểm');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows(outward)), 'Lượt đi');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows(returning)), 'Lượt về');
     workbook.Props = { Comments: JSON.stringify(book) };
