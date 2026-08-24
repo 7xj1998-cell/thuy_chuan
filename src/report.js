@@ -214,10 +214,6 @@ async function registerPdfFont(doc, suppliedFontBuffer) {
   doc.setFont('Inter', 'normal');
 }
 
-function reportLocale() {
-  return Intl.NumberFormat().resolvedOptions().locale;
-}
-
 function pdfMeters(value, locale) {
   return value === null || value === undefined || !Number.isFinite(value) ? '—' : `${formatReportMeters(value, locale)} m`;
 }
@@ -234,7 +230,7 @@ export async function createPdfDocument(book, solvedRuns, options = {}) {
   const [{ jsPDF }, { autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true });
   await registerPdfFont(doc, options.fontBuffer);
-  const locale = options.locale || reportLocale();
+  const locale = options.locale || 'vi-VN';
   const network = adjustLevelingNetwork(solvedRuns, book.benchmarks, book.settings.toleranceCoefficient);
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();

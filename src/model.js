@@ -1,5 +1,11 @@
 import { numberOf, uid, uppercaseName } from './calc';
-import { metersToMillimeters, migrateMillimeterInput, READING_FIELDS } from './units';
+import {
+  metersToMillimeters,
+  migrateMillimeterInput,
+  normalizeMeterInput,
+  normalizeStaffInput,
+  READING_FIELDS,
+} from './units';
 
 export const STORAGE_KEYS = {
   books: 'so-thuy-chuan.books.v2',
@@ -11,23 +17,44 @@ export const STORAGE_KEYS = {
 export const createBenchmark = (name = '', elevation = '') => ({ id: uid(), name: uppercaseName(name).trim(), elevation: String(elevation ?? '') });
 export const createStation = (point = '') => ({ id: uid(), point: uppercaseName(point).trim(), bs: '', fs: '', distance: '', bsUpper: '', bsMiddle: '', bsLower: '', fsUpper: '', fsMiddle: '', fsLower: '' });
 export const createRun = (index = 1, startPoint = '') => ({ id: uid(), name: `Lượt ${index}`, startPoint: uppercaseName(startPoint).trim(), mode: 'single', stations: [createStation()] });
-export const createBook = () => ({ schemaVersion: 3, id: uid(), name: `Sổ ${new Date().toLocaleDateString('vi-VN')}`, benchmarks: [createBenchmark('DG3', '2.222'), createBenchmark('DG4', '1.641')], runs: [createRun(1, 'DG3'), createRun(2, 'DG4')], settings: { toleranceCoefficient: '20' }, createdAt: Date.now(), updatedAt: Date.now() });
+export const createBook = () => ({ schemaVersion: 4, id: uid(), name: `Sổ ${new Date().toLocaleDateString('vi-VN')}`, benchmarks: [createBenchmark('DG3', '2,222'), createBenchmark('DG4', '1,641')], runs: [createRun(1, 'DG3'), createRun(2, 'DG4')], settings: { toleranceCoefficient: '20' }, createdAt: Date.now(), updatedAt: Date.now() });
 
 function migrateStoredBook(raw = {}) {
-  if (Number(raw.schemaVersion) >= 3) return raw;
+  let source = raw;
+  if (Number(source.schemaVersion) < 3) {
+    source = {
+      ...source,
+      schemaVersion: 3,
+      benchmarks: (source.benchmarks || []).map((benchmark) => ({
+        ...benchmark,
+        elevation: migrateMillimeterInput(benchmark.elevation),
+      })),
+      runs: (source.runs || []).map((run) => ({
+        ...run,
+        stations: (run.stations || []).map((station) => READING_FIELDS.reduce(
+          (next, field) => ({ ...next, [field]: migrateMillimeterInput(station[field]) }),
+          { ...station },
+        )),
+      })),
+    };
+  }
+  if (Number(source.schemaVersion) >= 4) return source;
   return {
-    ...raw,
-    schemaVersion: 3,
-    benchmarks: (raw.benchmarks || []).map((benchmark) => ({
+    ...source,
+    schemaVersion: 4,
+    benchmarks: (source.benchmarks || []).map((benchmark) => ({
       ...benchmark,
-      elevation: migrateMillimeterInput(benchmark.elevation),
+      elevation: normalizeMeterInput(benchmark.elevation),
     })),
-    runs: (raw.runs || []).map((run) => ({
+    runs: (source.runs || []).map((run) => ({
       ...run,
-      stations: (run.stations || []).map((station) => READING_FIELDS.reduce(
-        (next, field) => ({ ...next, [field]: migrateMillimeterInput(station[field]) }),
-        { ...station },
-      )),
+      stations: (run.stations || []).map((station) => ({
+        ...READING_FIELDS.reduce(
+          (next, field) => ({ ...next, [field]: normalizeStaffInput(station[field]) }),
+          { ...station },
+        ),
+        distance: normalizeMeterInput(station.distance),
+      })),
     })),
   };
 }
@@ -36,7 +63,7 @@ export function normalizeBook(raw = {}) {
   const source = migrateStoredBook(raw);
   const base = createBook();
   const book = {
-    ...base, ...source, schemaVersion: 3, id: source.id || uid(),
+    ...base, ...source, schemaVersion: 4, id: source.id || uid(),
     benchmarks: (source.benchmarks || []).map((b) => ({ ...createBenchmark(), ...b, id: b.id || uid(), name: uppercaseName(b.name).trim(), elevation: String(b.elevation ?? '') })),
     runs: (source.runs || []).map((run, index) => ({ ...createRun(index + 1), ...run, id: run.id || uid(), startPoint: uppercaseName(run.startPoint).trim(), mode: run.mode === 'three' ? 'three' : 'single', stations: (run.stations || []).map((s) => ({ ...createStation(), ...s, id: s.id || uid(), point: uppercaseName(s.point).trim() })) })),
     settings: { ...base.settings, ...(source.settings || {}) }, createdAt: source.createdAt || Date.now(), updatedAt: source.updatedAt || Date.now()

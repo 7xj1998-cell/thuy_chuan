@@ -9,6 +9,8 @@ import {
   migrateMillimeterInput,
   millimetersToMeters,
   normalizeMeterInput,
+  normalizeStaffInput,
+  sanitizeMeterInput,
 } from './units';
 
 describe('chuẩn hóa đơn vị trắc địa', () => {
@@ -20,10 +22,17 @@ describe('chuẩn hóa đơn vị trắc địa', () => {
   });
 
   it('hiển thị cao độ theo mét với đúng ba chữ số thập phân', () => {
-    expect(formatElevation(1755)).toBe('1.755');
-    expect(formatElevation(750)).toBe('0.750');
-    expect(formatMeters(3.085)).toBe('3.085');
-    expect(normalizeMeterInput('1')).toBe('1.000');
+    expect(formatElevation(1755)).toBe('1,755');
+    expect(formatElevation(750)).toBe('0,750');
+    expect(formatMeters(3.085)).toBe('3,085');
+    expect(normalizeMeterInput('1')).toBe('1,000');
+  });
+
+  it('chuẩn hóa thao tác nhập mét bằng dấu phẩy và sửa số đọc mm cũ', () => {
+    expect(sanitizeMeterInput('02.0009')).toBe('2,000');
+    expect(sanitizeMeterInput(',75')).toBe('0,75');
+    expect(normalizeStaffInput('2,000')).toBe('2,000');
+    expect(normalizeStaffInput('2000.000')).toBe('2,000');
   });
 
   it('hiển thị chênh cao và số hiệu chỉnh theo milimét nguyên có dấu', () => {
@@ -33,12 +42,13 @@ describe('chuẩn hóa đơn vị trắc địa', () => {
   });
 
   it('chuyển dữ liệu schema cũ từ milimét sang chuỗi mét', () => {
-    expect(migrateMillimeterInput('1854')).toBe('1.854');
+    expect(migrateMillimeterInput('1854')).toBe('1,854');
     expect(millimetersToMeters(750)).toBe(0.75);
   });
 
   it('báo cáo luôn giữ số 0 trước phần thập phân nhỏ hơn một mét', () => {
     expect(formatReportMeters(0.75, 'vi-VN')).toBe('0,750');
     expect(formatReportMeters(0.75, 'en-US')).toBe('0.750');
+    expect(formatReportMeters(2)).toBe('2,000');
   });
 });

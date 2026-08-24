@@ -13,6 +13,11 @@ export const READING_FIELDS = [
 
 const isFiniteNumber = (value) => typeof value === 'number' && Number.isFinite(value);
 const normalizeZero = (value, threshold) => Math.abs(value) < threshold ? 0 : value;
+const UI_METER_FORMATTER = new Intl.NumberFormat('vi-VN', {
+  minimumFractionDigits: 3,
+  maximumFractionDigits: 3,
+  useGrouping: false,
+});
 
 export function metersToMillimeters(value) {
   const meters = numberOf(value);
@@ -26,18 +31,41 @@ export function millimetersToMeters(value) {
 export function migrateMillimeterInput(value) {
   const millimeters = numberOf(value);
   if (millimeters === null) return value === null || value === undefined ? '' : String(value);
-  return (millimeters / 1000).toFixed(3);
+  return formatMeters(millimeters / 1000);
 }
 
 export function formatMeters(value) {
   if (!isFiniteNumber(value)) return '—';
-  return normalizeZero(value, 0.0005).toFixed(3);
+  return UI_METER_FORMATTER.format(normalizeZero(value, 0.0005));
+}
+
+export function sanitizeMeterInput(value) {
+  const raw = String(value ?? '').replace(/\s+/g, '').replace(/\./g, ',');
+  if (!raw) return '';
+
+  const negative = raw.startsWith('-');
+  const unsigned = raw.replace(/-/g, '').replace(/[^\d,]/g, '');
+  const separatorIndex = unsigned.indexOf(',');
+  const hasSeparator = separatorIndex >= 0;
+  const wholeRaw = hasSeparator ? unsigned.slice(0, separatorIndex) : unsigned;
+  const decimalsRaw = hasSeparator ? unsigned.slice(separatorIndex + 1).replace(/,/g, '') : '';
+  const whole = wholeRaw.replace(/^0+(?=\d)/, '') || (hasSeparator ? '0' : '');
+  const normalized = `${whole}${hasSeparator ? `,${decimalsRaw.slice(0, 3)}` : ''}`;
+  return `${negative ? '-' : ''}${normalized}`;
 }
 
 export function normalizeMeterInput(value) {
   const meters = numberOf(value);
   if (meters === null) return value === null || value === undefined ? '' : String(value);
   return formatMeters(meters);
+}
+
+export function normalizeStaffInput(value) {
+  const numeric = numberOf(value);
+  if (numeric === null) return value === null || value === undefined ? '' : String(value);
+  // A leveling staff reading cannot realistically reach 100 m. This also repairs
+  // imported values such as 2000.000 that were entered in millimeters previously.
+  return formatMeters(Math.abs(numeric) >= 100 ? numeric / 1000 : numeric);
 }
 
 export function formatElevation(valueInMillimeters) {
@@ -61,7 +89,7 @@ export function formatMillimeters(value, { signed = false } = {}) {
 
 export const formatSignedMillimeters = (value) => formatMillimeters(value, { signed: true });
 
-export function formatReportMeters(value, locale) {
+export function formatReportMeters(value, locale = 'vi-VN') {
   if (!isFiniteNumber(value)) return '—';
   return new Intl.NumberFormat(locale, {
     minimumFractionDigits: 3,

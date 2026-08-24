@@ -46,6 +46,8 @@ import {
   formatSignedMillimeters,
   formatStaffReading,
   normalizeMeterInput,
+  normalizeStaffInput,
+  sanitizeMeterInput,
 } from './units';
 
 const NAV_ITEMS = [
@@ -56,6 +58,21 @@ const NAV_ITEMS = [
 ];
 
 const SWIPE_REVEAL_PX = 88;
+
+function MeterInput({ value, onValueChange, staffReading = false, className = '', placeholder = '0,000', ...props }) {
+  const normalize = staffReading ? normalizeStaffInput : normalizeMeterInput;
+  return (
+    <input
+      {...props}
+      className={`${className} numeric meter-input`.trim()}
+      inputMode="decimal"
+      placeholder={placeholder}
+      value={value}
+      onChange={(event) => onValueChange(sanitizeMeterInput(event.target.value))}
+      onBlur={() => onValueChange(normalize(value))}
+    />
+  );
+}
 
 function readStorage(key, fallback) {
   try {
@@ -367,7 +384,8 @@ function RunPicker({ runs, runId, onSelect, onAdd }) {
           {runs.map((run) => <option key={run.id} value={run.id}>{run.name}</option>)}
         </select>
         <small className="runselect-meta">
-          <span>{selectedRun.startPoint || '—'}</span><span aria-hidden="true">→</span><span>{endPoint}</span><span>· {selectedRun.stations.length} trạm</span>
+          <span className="runselect-route"><b>{selectedRun.startPoint || '—'}</b><span aria-hidden="true">→</span><b>{endPoint}</b></span>
+          <span className="runselect-count">{selectedRun.stations.length} trạm</span>
         </small>
       </label>
       <button className="primary addrun" onClick={onAdd} aria-label="Thêm lượt đo" title="Thêm lượt đo"><Plus /><span className="sr-only">Thêm lượt đo</span></button>
@@ -383,14 +401,16 @@ function Measure({ run, solved, index, setIndex, updateStation, updateRun, finis
 
   return (
     <section className="measure-shell">
-      <div className="measure-head">
-        <div className="runlabel"><span className="section-kicker">Đang đo</span><strong>Trạm {index + 1} <i>/ {run.stations.length}</i></strong><small>{run.name}</small></div>
-        <div className="seg" aria-label="Phương pháp đọc mia">
-          <button aria-pressed={run.mode === 'single'} className={run.mode === 'single' ? 'active' : ''} onClick={() => updateRun(run.id, { mode: 'single' })}>1 chỉ</button>
-          <button aria-pressed={run.mode === 'three'} className={run.mode === 'three' ? 'active' : ''} onClick={() => updateRun(run.id, { mode: 'three' })}>3 chỉ</button>
+      <div className="station-toolbar">
+        <div className="measure-head">
+          <div className="runlabel"><span className="section-kicker">Đang đo</span><strong>Trạm {index + 1} <i>/ {run.stations.length}</i></strong><small>{run.name}</small></div>
+          <div className="seg" aria-label="Phương pháp đọc mia">
+            <button aria-pressed={run.mode === 'single'} className={run.mode === 'single' ? 'active' : ''} onClick={() => updateRun(run.id, { mode: 'single' })}>1 chỉ</button>
+            <button aria-pressed={run.mode === 'three'} className={run.mode === 'three' ? 'active' : ''} onClick={() => updateRun(run.id, { mode: 'three' })}>3 chỉ</button>
+          </div>
         </div>
+        <div className="station-progress" aria-label={`Tiến độ ${progress}%`} role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={progress}><span style={{ width: `${progress}%` }} /></div>
       </div>
-      <div className="station-progress" aria-hidden="true"><span style={{ width: `${progress}%` }} /></div>
       <div className="anchorline">
         <span className="anchor-icon" aria-hidden="true"><MapPin /></span>
         <span className="anchor-copy"><span>Điểm đặt mia sau</span><small className="numeric">H = {formatElevation(row?.fromElevation)} m</small></span>
@@ -401,12 +421,14 @@ function Measure({ run, solved, index, setIndex, updateStation, updateRun, finis
         {run.mode === 'single' ? (
           <>
             <div className="reading reading-bs">
-              <div className="reading-title"><span>Mia sau</span><em>BS · m</em></div>
-              <input className="hero-input numeric" aria-label="Số đọc mia sau BS theo mét" inputMode="decimal" enterKeyHint="next" placeholder="0.000" value={station.bs} onChange={(event) => updateStation(run, station.id, 'bs', event.target.value)} onBlur={() => updateStation(run, station.id, 'bs', normalizeMeterInput(station.bs))} />
+              <div className="reading-title"><span>Mia sau<small>Nhập theo mét</small></span><em>BS · m</em></div>
+              <MeterInput className="hero-input" staffReading aria-label="Số đọc mia sau BS theo mét" enterKeyHint="next" value={station.bs} onValueChange={(value) => updateStation(run, station.id, 'bs', value)} />
+              <small className="reading-example">Định dạng: <b className="numeric">2,000</b></small>
             </div>
             <div className="reading reading-fs">
-              <div className="reading-title"><span>Mia trước</span><em>FS · m</em></div>
-              <input className="hero-input numeric" aria-label="Số đọc mia trước FS theo mét" inputMode="decimal" enterKeyHint="next" placeholder="0.000" value={station.fs} onChange={(event) => updateStation(run, station.id, 'fs', event.target.value)} onBlur={() => updateStation(run, station.id, 'fs', normalizeMeterInput(station.fs))} />
+              <div className="reading-title"><span>Mia trước<small>Nhập theo mét</small></span><em>FS · m</em></div>
+              <MeterInput className="hero-input" staffReading aria-label="Số đọc mia trước FS theo mét" enterKeyHint="next" value={station.fs} onValueChange={(value) => updateStation(run, station.id, 'fs', value)} />
+              <small className="reading-example">Định dạng: <b className="numeric">1,585</b></small>
             </div>
           </>
         ) : (
@@ -420,7 +442,7 @@ function Measure({ run, solved, index, setIndex, updateStation, updateRun, finis
       {run.mode === 'single' ? (
         <label className="distance-manual distance-input">
           <span>Khoảng cách đoạn <small>Không bắt buộc · m</small></span>
-          <input className="numeric" aria-label="Khoảng cách đoạn theo mét, không bắt buộc" inputMode="decimal" placeholder="Nhập khoảng cách (m)..." value={station.distance} onChange={(event) => updateStation(run, station.id, 'distance', event.target.value)} onBlur={() => updateStation(run, station.id, 'distance', normalizeMeterInput(station.distance))} />
+          <MeterInput aria-label="Khoảng cách đoạn theo mét, không bắt buộc" placeholder="Nhập khoảng cách (m)..." value={station.distance} onValueChange={(value) => updateStation(run, station.id, 'distance', value)} />
         </label>
       ) : (
         <div className="distance-manual distance-stats">
@@ -449,10 +471,10 @@ function Measure({ run, solved, index, setIndex, updateStation, updateRun, finis
 function Staff({ title, prefix, station, row, update }) {
   return (
     <div className={`reading reading-${prefix}`}>
-      <div className="reading-title"><span>{title}</span><em>{prefix.toUpperCase()} · m</em></div>
+      <div className="reading-title"><span>{title}<small>Ba chỉ · mét</small></span><em>{prefix.toUpperCase()} · m</em></div>
       <div className="threegrid">
         {[['Upper', 'Trên'], ['Middle', 'Giữa'], ['Lower', 'Dưới']].map(([suffix, label]) => (
-          <label key={suffix}>{label}<input className="numeric" aria-label={`${title} chỉ ${label.toLowerCase()} theo mét`} inputMode="decimal" enterKeyHint="next" placeholder="0.000" value={station[`${prefix}${suffix}`]} onChange={(event) => update(`${prefix}${suffix}`, event.target.value)} onBlur={() => update(`${prefix}${suffix}`, normalizeMeterInput(station[`${prefix}${suffix}`]))} /></label>
+          <label key={suffix}>{label}<MeterInput staffReading aria-label={`${title} chỉ ${label.toLowerCase()} theo mét`} enterKeyHint="next" value={station[`${prefix}${suffix}`]} onValueChange={(value) => update(`${prefix}${suffix}`, value)} /></label>
         ))}
       </div>
       <div className="staffmeta">
@@ -563,7 +585,7 @@ function Results({ book, solvedRuns, updateBook }) {
   const coefficient = book.settings.toleranceCoefficient;
   const network = adjustLevelingNetwork(solvedRuns, book.benchmarks, coefficient);
   return (
-    <section>
+    <section className="result-shell">
       <SectionHeading Icon={BarChart2} eyebrow="Kết quả kỹ thuật" title="Kiểm tra & bình sai" description="Theo dõi sai số, độ chính xác và cao độ sau bình sai." />
       <NetworkAdjustment network={network} />
       {solvedRuns.map((solved) => (
@@ -653,7 +675,7 @@ function Files({ book, books, updateBook, setBook, setBooks, newBook, save, save
         {book.benchmarks.map((benchmark) => (
           <div className="benchrow" key={benchmark.id}>
             <input aria-label="Tên mốc" value={benchmark.name} onChange={(event) => updateBook((previous) => ({ ...previous, benchmarks: previous.benchmarks.map((item) => item.id === benchmark.id ? { ...item, name: uppercaseName(event.target.value) } : item) }))} />
-            <label><input className="numeric" aria-label={`Cao độ mốc ${benchmark.name || ''} theo mét`} inputMode="decimal" placeholder="0.000" value={benchmark.elevation} onChange={(event) => updateBook((previous) => ({ ...previous, benchmarks: previous.benchmarks.map((item) => item.id === benchmark.id ? { ...item, elevation: event.target.value } : item) }))} onBlur={() => updateBook((previous) => ({ ...previous, benchmarks: previous.benchmarks.map((item) => item.id === benchmark.id ? { ...item, elevation: normalizeMeterInput(item.elevation) } : item) }))} /><span>m</span></label>
+            <label><MeterInput aria-label={`Cao độ mốc ${benchmark.name || ''} theo mét`} value={benchmark.elevation} onValueChange={(value) => updateBook((previous) => ({ ...previous, benchmarks: previous.benchmarks.map((item) => item.id === benchmark.id ? { ...item, elevation: value } : item) }))} /><span>m</span></label>
             <button className="danger icon-danger" aria-label={`Xóa mốc ${benchmark.name}`} onClick={() => updateBook((previous) => ({ ...previous, benchmarks: previous.benchmarks.filter((item) => item.id !== benchmark.id) }))}><Trash2 /></button>
           </div>
         ))}

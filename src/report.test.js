@@ -8,13 +8,13 @@ describe('báo cáo Excel kỹ thuật', () => {
     const book = normalizeBook({
       ...initial,
       benchmarks: [
-        { ...initial.benchmarks[0], name: 'DG1', elevation: '0.750' },
-        { ...initial.benchmarks[1], name: 'DG2', elevation: '0.975' },
+        { ...initial.benchmarks[0], name: 'DG1', elevation: '0,750' },
+        { ...initial.benchmarks[1], name: 'DG2', elevation: '0,975' },
       ],
       runs: [{
         ...initial.runs[0],
         startPoint: 'DG1',
-        stations: [{ ...createStation('DG2'), bs: '1.330', fs: '1.105', distance: '' }],
+        stations: [{ ...createStation('DG2'), bs: '1,330', fs: '1,105', distance: '' }],
       }],
     });
     const solvedRuns = book.runs.map((run) => solveRun(run, book.benchmarks));

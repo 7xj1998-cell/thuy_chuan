@@ -2,6 +2,13 @@
 
 Ứng dụng ghi, tính và bình sai cao độ cho nhiều lượt đo độc lập, dùng chung mã nguồn cho web, iPhone và Android.
 
+## Phiên bản 2.3.1
+
+- Toàn bộ số liệu theo mét trên giao diện và PDF dùng dấu phẩy thập phân Việt Nam: `2,000 m`, `1,585 m`, `0,750 m`.
+- Tự sửa số đọc mia cũ nhập theo milimét như `2000.000` thành `2,000` mà không làm đổi lõi tính toán.
+- Giao diện bốn màn hình được tinh chỉnh theo hệ Modern Mobile-First: phân cấp rõ, micro-card, vùng chạm 48 px và nút hành động trong vùng ngón cái.
+- Mỗi Git tag phiên bản `v*` tự build APK/IPA và tạo GitHub Release có file tải trực tiếp.
+
 ## Phiên bản 2.3
 
 - Chuẩn hóa đầu vào BS/FS và cao độ theo mét với 3 chữ số thập phân; Δh, sai số khép và số hiệu chỉnh hiển thị theo milimét nguyên.
@@ -23,7 +30,7 @@
 - Hỗ trợ tuyến thuận/ngược, so sánh cùng điểm giữa các lượt và lưu bản sao bằng ID riêng.
 - Hai chế độ đo 1 chỉ và 3 chỉ. Chế độ 3 chỉ tự tính khoảng cách mia sau/trước, chênh lệch khoảng cách và sai số chỉ giữa.
 - Tự lưu bản nháp, đổi tên sổ/lượt, vuốt trái để xóa trạm và hoàn tác trong 5 giây.
-- Dữ liệu v1/v2 được tự động chuyển sang schema v3; trị đọc và cao độ đầu vào dùng mét, lõi tính toán tiếp tục dùng milimét.
+- Dữ liệu cũ được tự động chuyển sang schema v4; trị đọc và cao độ đầu vào dùng mét, lõi tính toán tiếp tục dùng milimét.
 
 ## Chạy và kiểm thử
 
@@ -61,6 +68,6 @@ File Excel gồm các sheet **Thông tin**, **Mốc chuẩn**, **Tất cả đi�
 - Sai số cho phép tính theo `C × √K`, trong đó `K` là tổng chiều dài tuyến (km) và `C` mặc định là 20 mm/√km.
 - Kết quả gồm số hiệu chỉnh chênh cao `(v)`, chênh cao bình sai và cao độ bình sai từng điểm; Excel và PDF dùng chung quy tắc đơn vị.
 
-## Tải APK từ GitHub
+## Tải APK/IPA từ GitHub
 
-Mỗi lần có commit lên nhánh `main`, workflow **Build mobile app** sẽ kiểm thử và tạo APK Android cùng IPA chưa ký. Tên artifact tự mang phiên bản, ví dụ `So-do-thuy-chuan_v2.3.0_Android` và `So-do-thuy-chuan_v2.3.0_unsigned`.
+Mỗi Git tag trùng phiên bản trong `package.json`, ví dụ `v2.3.1`, sẽ chạy workflow **Build mobile app**, tạo APK Android, IPA chưa ký và tự phát hành GitHub Release. Hai file cài đặt được đính kèm trực tiếp vào Release để tải lâu dài, đồng thời vẫn có artifact lưu 30 ngày trong workflow.

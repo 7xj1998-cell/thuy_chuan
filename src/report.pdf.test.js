@@ -9,19 +9,19 @@ describe('báo cáo PDF kỹ thuật', () => {
     const initial = createBook();
     const stations = Array.from({ length: 12 }, (_, index) => ({
       ...createStation(`TP${index + 1}`),
-      bs: '1.330',
-      fs: '1.105',
+      bs: '1,330',
+      fs: '1,105',
       distance: '',
     }));
     const book = normalizeBook({
       ...initial,
       name: 'Sổ kiểm tra tiếng Việt',
-      benchmarks: [{ ...initial.benchmarks[0], name: 'DG1', elevation: '0.750' }],
+      benchmarks: [{ ...initial.benchmarks[0], name: 'DG1', elevation: '0,750' }],
       runs: [{ ...initial.runs[0], name: 'Lượt kiểm tra', startPoint: 'DG1', stations }],
     });
     const solvedRuns = book.runs.map((run) => solveRun(run, book.benchmarks));
     const fontBuffer = readFileSync(new URL('./assets/InterVariable.ttf', import.meta.url));
-    const doc = await createPdfDocument(book, solvedRuns, { fontBuffer, locale: 'vi-VN' });
+    const doc = await createPdfDocument(book, solvedRuns, { fontBuffer });
     const pdfBuffer = Buffer.from(doc.output('arraybuffer'));
 
     expect(pdfBuffer.subarray(0, 4).toString()).toBe('%PDF');
