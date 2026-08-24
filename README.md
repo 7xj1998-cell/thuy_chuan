@@ -2,7 +2,14 @@
 
 Ứng dụng ghi, tính và bình sai cao độ cho nhiều lượt đo độc lập, dùng chung mã nguồn cho web, iPhone và Android.
 
-## Phiên bản 2.0
+## Phiên bản 2.1
+
+- Giao diện Apple-inspired mới với vật liệu kính mờ, khoảng thở lớn, typography hệ thống và chuyển động tinh tế.
+- Bố cục responsive tối ưu cho web, iPhone và Android; vùng chạm tối thiểu 44 px và hỗ trợ safe area.
+- Hệ màu kỹ thuật mới giúp trị đo, cao độ và trạng thái tuyến dễ đọc ngoài hiện trường.
+- Toàn bộ công thức tính, schema dữ liệu và quy trình bình sai của phiên bản 2.0 được giữ nguyên.
+
+## Nền tảng tính toán 2.0
 
 - Mỗi sổ có nhiều mốc chuẩn và nhiều lượt đo độc lập; có thể neo cao độ từ mốc nằm ở đầu, giữa hoặc cuối tuyến.
 - Hỗ trợ tuyến thuận/ngược, so sánh cùng điểm giữa các lượt và lưu bản sao bằng ID riêng.
@@ -48,4 +55,4 @@ File Excel gồm các sheet **Thông tin**, **Mốc chuẩn**, **Tất cả đi�
 
 ## Tải APK từ GitHub
 
-Mỗi lần có commit lên nhánh `main`, workflow **Build mobile app** sẽ kiểm thử và tạo APK Android cùng IPA chưa ký. Tên artifact tự mang phiên bản, ví dụ `So-do-thuy-chuan_v2.0.1_Android` và `So-do-thuy-chuan_v2.0.1_unsigned`.
+Mỗi lần có commit lên nhánh `main`, workflow **Build mobile app** sẽ kiểm thử và tạo APK Android cùng IPA chưa ký. Tên artifact tự mang phiên bản, ví dụ `So-do-thuy-chuan_v2.1.0_Android` và `So-do-thuy-chuan_v2.1.0_unsigned`.
