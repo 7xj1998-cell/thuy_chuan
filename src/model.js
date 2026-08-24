@@ -1,4 +1,5 @@
 import { numberOf, uid, uppercaseName } from './calc';
+import { metersToMillimeters, migrateMillimeterInput, READING_FIELDS } from './units';
 
 export const STORAGE_KEYS = {
   books: 'so-thuy-chuan.books.v2',
@@ -10,15 +11,35 @@ export const STORAGE_KEYS = {
 export const createBenchmark = (name = '', elevation = '') => ({ id: uid(), name: uppercaseName(name).trim(), elevation: String(elevation ?? '') });
 export const createStation = (point = '') => ({ id: uid(), point: uppercaseName(point).trim(), bs: '', fs: '', distance: '', bsUpper: '', bsMiddle: '', bsLower: '', fsUpper: '', fsMiddle: '', fsLower: '' });
 export const createRun = (index = 1, startPoint = '') => ({ id: uid(), name: `Lượt ${index}`, startPoint: uppercaseName(startPoint).trim(), mode: 'single', stations: [createStation()] });
-export const createBook = () => ({ schemaVersion: 2, id: uid(), name: `Sổ ${new Date().toLocaleDateString('vi-VN')}`, benchmarks: [createBenchmark('DG3', '2222'), createBenchmark('DG4', '1641')], runs: [createRun(1, 'DG3'), createRun(2, 'DG4')], settings: { toleranceCoefficient: '20' }, createdAt: Date.now(), updatedAt: Date.now() });
+export const createBook = () => ({ schemaVersion: 3, id: uid(), name: `Sổ ${new Date().toLocaleDateString('vi-VN')}`, benchmarks: [createBenchmark('DG3', '2.222'), createBenchmark('DG4', '1.641')], runs: [createRun(1, 'DG3'), createRun(2, 'DG4')], settings: { toleranceCoefficient: '20' }, createdAt: Date.now(), updatedAt: Date.now() });
+
+function migrateStoredBook(raw = {}) {
+  if (Number(raw.schemaVersion) >= 3) return raw;
+  return {
+    ...raw,
+    schemaVersion: 3,
+    benchmarks: (raw.benchmarks || []).map((benchmark) => ({
+      ...benchmark,
+      elevation: migrateMillimeterInput(benchmark.elevation),
+    })),
+    runs: (raw.runs || []).map((run) => ({
+      ...run,
+      stations: (run.stations || []).map((station) => READING_FIELDS.reduce(
+        (next, field) => ({ ...next, [field]: migrateMillimeterInput(station[field]) }),
+        { ...station },
+      )),
+    })),
+  };
+}
 
 export function normalizeBook(raw = {}) {
+  const source = migrateStoredBook(raw);
   const base = createBook();
   const book = {
-    ...base, ...raw, schemaVersion: 2, id: raw.id || uid(),
-    benchmarks: (raw.benchmarks || []).map((b) => ({ ...createBenchmark(), ...b, id: b.id || uid(), name: uppercaseName(b.name).trim(), elevation: String(b.elevation ?? '') })),
-    runs: (raw.runs || []).map((run, index) => ({ ...createRun(index + 1), ...run, id: run.id || uid(), startPoint: uppercaseName(run.startPoint).trim(), mode: run.mode === 'three' ? 'three' : 'single', stations: (run.stations || []).map((s) => ({ ...createStation(), ...s, id: s.id || uid(), point: uppercaseName(s.point).trim() })) })),
-    settings: { ...base.settings, ...(raw.settings || {}) }, createdAt: raw.createdAt || Date.now(), updatedAt: raw.updatedAt || Date.now()
+    ...base, ...source, schemaVersion: 3, id: source.id || uid(),
+    benchmarks: (source.benchmarks || []).map((b) => ({ ...createBenchmark(), ...b, id: b.id || uid(), name: uppercaseName(b.name).trim(), elevation: String(b.elevation ?? '') })),
+    runs: (source.runs || []).map((run, index) => ({ ...createRun(index + 1), ...run, id: run.id || uid(), startPoint: uppercaseName(run.startPoint).trim(), mode: run.mode === 'three' ? 'three' : 'single', stations: (run.stations || []).map((s) => ({ ...createStation(), ...s, id: s.id || uid(), point: uppercaseName(s.point).trim() })) })),
+    settings: { ...base.settings, ...(source.settings || {}) }, createdAt: source.createdAt || Date.now(), updatedAt: source.updatedAt || Date.now()
   };
   if (!book.runs.length) book.runs = [createRun(1, book.benchmarks[0]?.name || '')];
   book.runs.forEach((run) => { if (!run.stations.length) run.stations = [createStation()]; });
@@ -28,22 +49,22 @@ export function normalizeBook(raw = {}) {
 export function migrateLegacyBook(legacy) {
   const benchmarks = [];
   if (uppercaseName(legacy.startName).trim() && numberOf(legacy.startElevation) !== null) benchmarks.push(createBenchmark(legacy.startName, legacy.startElevation));
-  return normalizeBook({ id: legacy.id || uid(), name: legacy.name || 'Sổ chuyển đổi', benchmarks, runs: [
+  return normalizeBook({ schemaVersion: 2, id: legacy.id || uid(), name: legacy.name || 'Sổ chuyển đổi', benchmarks, runs: [
     { ...createRun(1, legacy.startName), stations: (legacy.outward || []).map((s) => ({ ...createStation(), ...s, id: uid(), point: uppercaseName(s.point).trim() })) },
     { ...createRun(2, legacy.endName), stations: (legacy.returning || []).map((s) => ({ ...createStation(), ...s, id: uid(), point: uppercaseName(s.point).trim() })) }
   ], settings: { toleranceCoefficient: String(legacy.toleranceCoefficient ?? 20) } });
 }
 
-export const staffDistance = (upper, lower) => numberOf(upper) === null || numberOf(lower) === null ? null : Math.abs(numberOf(upper) - numberOf(lower)) / 10;
-export const middleError = (upper, middle, lower) => [upper, middle, lower].some((v) => numberOf(v) === null) ? null : numberOf(middle) - (numberOf(upper) + numberOf(lower)) / 2;
+export const staffDistance = (upper, lower) => metersToMillimeters(upper) === null || metersToMillimeters(lower) === null ? null : Math.abs(metersToMillimeters(upper) - metersToMillimeters(lower)) / 10;
+export const middleError = (upper, middle, lower) => [upper, middle, lower].some((v) => metersToMillimeters(v) === null) ? null : metersToMillimeters(middle) - (metersToMillimeters(upper) + metersToMillimeters(lower)) / 2;
 
 export function stationReadings(station, mode) {
   if (mode === 'three') {
-    const bs = numberOf(station.bsMiddle), fs = numberOf(station.fsMiddle);
+    const bs = metersToMillimeters(station.bsMiddle), fs = metersToMillimeters(station.fsMiddle);
     const db = staffDistance(station.bsUpper, station.bsLower), df = staffDistance(station.fsUpper, station.fsLower);
     return { bs, fs, db, df, distance: db !== null && df !== null ? db + df : null, distanceDifference: db !== null && df !== null ? db - df : null, bsMiddleError: middleError(station.bsUpper, station.bsMiddle, station.bsLower), fsMiddleError: middleError(station.fsUpper, station.fsMiddle, station.fsLower) };
   }
-  return { bs: numberOf(station.bs), fs: numberOf(station.fs), db: null, df: null, distance: numberOf(station.distance), distanceDifference: null, bsMiddleError: null, fsMiddleError: null };
+  return { bs: metersToMillimeters(station.bs), fs: metersToMillimeters(station.fs), db: null, df: null, distance: numberOf(station.distance), distanceDifference: null, bsMiddleError: null, fsMiddleError: null };
 }
 
 export function solveRun(run, benchmarks) {
@@ -57,7 +78,7 @@ export function solveRun(run, benchmarks) {
     readingRows.push({ ...reading, delta });
   });
   const known = new Map();
-  benchmarks.forEach((b) => { const name = uppercaseName(b.name).trim(), elevation = numberOf(b.elevation); if (name && elevation !== null) known.set(name, elevation); });
+  benchmarks.forEach((b) => { const name = uppercaseName(b.name).trim(), elevation = metersToMillimeters(b.elevation); if (name && elevation !== null) known.set(name, elevation); });
   const anchors = [];
   pointNames.forEach((name, index) => { if (name && known.has(name) && relatives[index] !== null) anchors.push({ index, name, known: known.get(name), relative: relatives[index] }); });
   const primary = anchors[0] || null;
@@ -111,7 +132,7 @@ function solveLinearSystem(matrix, vector) {
 export function adjustLevelingNetwork(solvedRuns, benchmarks, coefficient = 20) {
   const fixed = new Map();
   benchmarks.forEach((benchmark) => {
-    const name = uppercaseName(benchmark.name).trim(), elevation = numberOf(benchmark.elevation);
+    const name = uppercaseName(benchmark.name).trim(), elevation = metersToMillimeters(benchmark.elevation);
     if (name && elevation !== null) fixed.set(name, elevation);
   });
 
