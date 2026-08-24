@@ -1,11 +1,19 @@
 # Sổ thủy chuẩn
 
-Ứng dụng ghi và tính chuyền cao độ DG ↔ DC, dùng chung mã nguồn cho web, iPhone và Android.
+Ứng dụng ghi, tính và bình sai cao độ cho nhiều lượt đo độc lập, dùng chung mã nguồn cho web, iPhone và Android.
+
+## Phiên bản 2.0
+
+- Mỗi sổ có nhiều mốc chuẩn và nhiều lượt đo độc lập; có thể neo cao độ từ mốc nằm ở đầu, giữa hoặc cuối tuyến.
+- Hỗ trợ tuyến thuận/ngược, so sánh cùng điểm giữa các lượt và lưu bản sao bằng ID riêng.
+- Hai chế độ đo 1 chỉ và 3 chỉ. Chế độ 3 chỉ tự tính khoảng cách mia sau/trước, chênh lệch khoảng cách và sai số chỉ giữa.
+- Tự lưu bản nháp, đổi tên sổ/lượt, vuốt trái để xóa trạm và hoàn tác trong 5 giây.
+- Dữ liệu v1 trong `so-thuy-chuan.books.v1` được tự động chuyển sang schema v2.
 
 ## Chạy và kiểm thử
 
 ```bash
-npm install
+npm ci
 npm test
 npm run build
 ```
@@ -25,7 +33,7 @@ Dữ liệu sổ lưu cục bộ trên thiết bị. Chức năng Excel dùng đ
 
 Tên mốc và tên điểm được tự động chuẩn hóa thành chữ in hoa trên web, Android và iOS, kể cả dữ liệu mở từ sổ cũ hoặc nhập từ Excel.
 
-File Excel gồm các sheet **Thông tin**, **Tất cả điểm**, **Lượt đi** và **Lượt về**. Sheet **Tất cả điểm** liệt kê mốc đầu, toàn bộ TP/TV trung gian và các mốc DG/DC cùng cao độ theo đúng thứ tự đo.
+File Excel gồm các sheet **Thông tin**, **Mốc chuẩn**, **Tất cả điểm**, **So sánh**, **Bình sai** và một sheet chi tiết cho mỗi lượt đo. Sheet **Tất cả điểm** luôn liệt kê cả các điểm trung gian theo đúng thứ tự đo. Mỗi lần nhập Excel sẽ tạo một sổ mới để không ghi đè dữ liệu hiện có.
 
 ## Bình sai cao độ
 
@@ -36,4 +44,4 @@ File Excel gồm các sheet **Thông tin**, **Tất cả điểm**, **Lượt đ
 
 ## Tải APK từ GitHub
 
-Mỗi lần có commit lên nhánh `main`, workflow **Build mobile app** sẽ kiểm thử và build APK Android. Vào **GitHub → Actions → Build mobile app → Artifacts** để tải `so-thuy-chuan-android-debug`.
+Mỗi lần có commit lên nhánh `main`, workflow **Build mobile app** sẽ kiểm thử và tạo APK Android cùng IPA chưa ký. Vào **GitHub → Actions → Build mobile app → Artifacts** để tải `So-do-thuy-chuan_v2.0.0_Android` và `So-do-thuy-chuan_v2.0.0_unsigned`.

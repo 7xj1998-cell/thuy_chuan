@@ -1,180 +1,104 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Capacitor } from '@capacitor/core';
-import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
+import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
-import { BookOpen, Download, FileUp, FolderOpen, Plus, Save, Trash2 } from 'lucide-react';
-import { adjustLeveling, calculateRoute, compareRoutes, format, listRoutePoints, station, uid, uppercaseName } from './calc';
+import { adjustSolvedRun, compareRuns, createBenchmark, createBook, createRun, createStation, migrateLegacyBook, normalizeBook, removeStation, restoreStation, saveAsCopy, solveRun, STORAGE_KEYS } from './model';
+import { format, uid, uppercaseName } from './calc';
 import './styles.css';
-import './mobile-fixes.css';
 
-const STORAGE_KEY = 'so-thuy-chuan.books.v1';
-const makeBook = () => ({
-  id: uid(), name: `Sổ ${new Date().toLocaleDateString('vi-VN')}`,
-  startName: 'DG5', startElevation: '2548', endName: 'DC11', toleranceCoefficient: '20',
-  outward: [station('DC11')], returning: [station('DG5')], updatedAt: Date.now()
-});
-const normalizeBookNames = (book) => ({
-  ...book,
-  startName: uppercaseName(book.startName),
-  endName: uppercaseName(book.endName),
-  outward: (book.outward || []).map((row) => ({ ...row, point: uppercaseName(row.point) })),
-  returning: (book.returning || []).map((row) => ({ ...row, point: uppercaseName(row.point) }))
-});
-const loadBooks = () => { try { return (JSON.parse(localStorage.getItem(STORAGE_KEY)) || []).map(normalizeBookNames); } catch { return []; } };
-const saveBooks = (books) => localStorage.setItem(STORAGE_KEY, JSON.stringify(books));
+const readStorage = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
+function loadBooks() {
+  const v2 = readStorage(STORAGE_KEYS.books, null);
+  if (Array.isArray(v2)) return v2.map(normalizeBook);
+  const legacy = readStorage(STORAGE_KEYS.legacy, []);
+  if (legacy.length) { const migrated = legacy.map(migrateLegacyBook); localStorage.setItem(STORAGE_KEYS.books, JSON.stringify(migrated)); return migrated; }
+  return [];
+}
+function nextExportName(base) {
+  const clean = String(base || 'so-thuy-chuan').replace(/\.xlsx$/i, '').replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_') || 'so-thuy-chuan';
+  const used = readStorage(STORAGE_KEYS.exports, {}), count = (used[clean] || 0) + 1;
+  used[clean] = count; localStorage.setItem(STORAGE_KEYS.exports, JSON.stringify(used));
+  return `${clean}${count === 1 ? '' : `_${String(count).padStart(2, '0')}`}.xlsx`;
+}
 
 function App() {
-  const [book, setBook] = useState(makeBook);
   const [books, setBooks] = useState(loadBooks);
-  const [tab, setTab] = useState('outward');
-  const [message, setMessage] = useState('');
-  const importRef = useRef(null);
+  const [book, setBook] = useState(() => normalizeBook(readStorage(STORAGE_KEYS.draft, null) || createBook()));
+  const [tab, setTab] = useState('measure');
+  const [runId, setRunId] = useState(() => book.runs[0].id);
+  const [stationIndex, setStationIndex] = useState(0);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [toast, setToast] = useState(null);
+  const fileRef = useRef(null);
+  const activeRunIndex = Math.max(0, book.runs.findIndex((run) => run.id === runId));
+  const activeRun = book.runs[activeRunIndex];
+  const solvedRuns = useMemo(() => book.runs.map((run) => solveRun(run, book.benchmarks)), [book]);
+  const activeSolved = solvedRuns[activeRunIndex];
 
-  const outward = useMemo(() => calculateRoute(book.startName, book.startElevation, book.outward), [book]);
-  const endElevation = outward.at(-1)?.elevation ?? null;
-  const returning = useMemo(() => calculateRoute(book.endName, endElevation, book.returning), [book.endName, book.returning, endElevation]);
-  const closure = returning.at(-1)?.elevation === null ? null : returning.at(-1).elevation - Number(book.startElevation);
-  const comparisons = useMemo(() => compareRoutes(outward, returning), [outward, returning]);
-  const adjustment = useMemo(() => adjustLeveling(outward, returning, closure, book.toleranceCoefficient ?? 20), [outward, returning, closure, book.toleranceCoefficient]);
+  useEffect(() => { const timer = setTimeout(() => localStorage.setItem(STORAGE_KEYS.draft, JSON.stringify({ ...book, updatedAt: Date.now() })), 180); return () => clearTimeout(timer); }, [book]);
+  useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(null), toast.action ? 4500 : 1800); return () => clearTimeout(timer); }, [toast]);
+  const updateBook = (updater) => setBook((previous) => normalizeBook(typeof updater === 'function' ? updater(previous) : { ...previous, ...updater, updatedAt: Date.now() }));
+  const updateRun = (id, patch) => updateBook((previous) => ({ ...previous, runs: previous.runs.map((run) => run.id === id ? { ...run, ...patch } : run), updatedAt: Date.now() }));
+  const updateStation = (run, stationId, field, value) => updateRun(run.id, { stations: run.stations.map((station) => station.id === stationId ? { ...station, [field]: field === 'point' ? uppercaseName(value).trimStart() : value } : station) });
 
-  useEffect(() => { if (!message) return; const timer = setTimeout(() => setMessage(''), 2500); return () => clearTimeout(timer); }, [message]);
-  const patch = (value) => setBook((old) => ({ ...old, ...value }));
-  const patchRow = (direction, id, field, value) => setBook((old) => ({
-    ...old, [direction]: old[direction].map((row) => row.id === id ? { ...row, [field]: value } : row)
-  }));
-  const addRows = (direction, count = 1) => setBook((old) => {
-    const current = old[direction];
-    const prefix = direction === 'outward' ? 'TP' : 'TV';
-    const additions = Array.from({ length: count }, (_, i) => station(`${prefix}${current.length + i + 1}`));
-    return { ...old, [direction]: [...current, ...additions] };
-  });
-  const removeRow = (direction, id) => setBook((old) => ({ ...old, [direction]: old[direction].filter((r) => r.id !== id) }));
-
-  function saveCurrent() {
-    const saved = { ...book, updatedAt: Date.now() };
-    const next = [saved, ...books.filter((item) => item.id !== saved.id)];
-    setBook(saved); setBooks(next); saveBooks(next); setMessage('Đã lưu sổ trên thiết bị');
+  function selectRun(id) { setRunId(id); setStationIndex(0); setSettingsOpen(false); }
+  function addRun() { const next = createRun(book.runs.length + 1, book.benchmarks[0]?.name || ''); updateBook((b) => ({ ...b, runs: [...b.runs, next] })); selectRun(next.id); }
+  function addStation() { const next = createStation(); updateRun(activeRun.id, { stations: [...activeRun.stations, next] }); setStationIndex(activeRun.stations.length); setTab('measure'); }
+  function finishStation() { const station = activeRun.stations[stationIndex]; if (!station.point.trim()) return alert('Nhập tên điểm tới trước khi hoàn tất trạm.'); if (stationIndex < activeRun.stations.length - 1) setStationIndex(stationIndex + 1); else addStation(); setToast({ text: 'Đã lưu trạm' }); }
+  function deleteStation(index) {
+    const result = removeStation(activeRun, index); if (!result.removed) return alert('Lượt đo cần ít nhất 1 trạm.');
+    updateRun(activeRun.id, { stations: result.stations }); setStationIndex(Math.min(stationIndex, result.stations.length - 1));
+    setToast({ text: `Đã xóa trạm ${index + 1}`, action: { label: 'Hoàn tác', fn: () => { updateRun(activeRun.id, { stations: restoreStation(result.stations, result.removed) }); setStationIndex(index); } } });
   }
-  function newBook() { if (!confirm('Tạo sổ mới? Số liệu chưa lưu sẽ bị bỏ.')) return; setBook(makeBook()); setTab('outward'); }
-  function openBook(id) { const found = books.find((item) => item.id === id); if (found) setBook(normalizeBookNames(structuredClone(found))); }
+  function save() { const saved = normalizeBook({ ...book, updatedAt: Date.now() }); const next = [saved, ...books.filter((item) => item.id !== saved.id)]; setBook(saved); setBooks(next); localStorage.setItem(STORAGE_KEYS.books, JSON.stringify(next)); localStorage.removeItem(STORAGE_KEYS.draft); setToast({ text: 'Đã lưu sổ' }); }
+  function saveAs() { const name = prompt('Tên sổ mới:', `${book.name} - bản sao`); if (!name?.trim()) return; const copy = saveAsCopy(book, name); const next = [copy, ...books]; setBook(copy); setBooks(next); setRunId(copy.runs[0].id); setStationIndex(0); localStorage.setItem(STORAGE_KEYS.books, JSON.stringify(next)); setToast({ text: 'Đã lưu thành sổ mới' }); }
+  function renameBook() { const name = prompt('Đổi tên sổ:', book.name); if (name?.trim()) updateBook({ ...book, name: name.trim() }); }
+  function newBook() { if (!confirm('Tạo sổ mới? Bản nháp hiện tại vẫn được lưu.')) return; const next = createBook(); setBook(next); setRunId(next.runs[0].id); setStationIndex(0); setTab('measure'); }
 
   async function exportExcel() {
-    const XLSX = await import('xlsx');
-    const info = [{ 'Tên sổ': book.name, 'Mốc đầu': book.startName, 'Cao độ đầu (mm)': book.startElevation, 'Mốc cuối': book.endName, 'Cao độ cuối (mm)': endElevation, 'Sai số khép (mm)': closure }];
-    const rows = (route) => route.map((r, i) => ({ Trạm: i + 1, 'Điểm sau': r.point, 'Khoảng cách (m)': r.distance ?? '', 'H điểm BS': r.fromElevation, BS: r.bs, HI: r.hi, FS: r.fs, 'Δh': r.delta, 'H điểm FS': r.elevation }));
-    const pointRows = [
-      ...listRoutePoints('Lượt đi', book.startName, book.startElevation, outward),
-      ...listRoutePoints('Lượt về', book.endName, endElevation, returning)
-    ].map((point) => ({
-      'Lượt đo': point.direction,
-      'Thứ tự': point.order,
-      'Loại điểm': point.type,
-      'Tên điểm': point.name,
-      'Cao độ (mm)': point.elevation
-    }));
-    const adjustmentRows = adjustment.segments.map((row, index) => ({
-      'STT': index + 1,
-      'Lượt đo': row.direction,
-      'Điểm đầu': row.fromName,
-      'Điểm cuối': row.point,
-      'Khoảng cách (m)': row.distance ?? '',
-      'Δh đo (mm)': row.delta,
-      'Số hiệu chỉnh (mm)': row.correction,
-      'Δh bình sai (mm)': row.adjustedDelta,
-      'Hiệu chỉnh lũy kế (mm)': row.cumulativeCorrection,
-      'Cao độ bình sai (mm)': row.adjustedElevation
-    }));
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(info), 'Thông tin');
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(pointRows), 'Tất cả điểm');
+    const desired = prompt('Tên file Excel:', book.name); if (!desired?.trim()) return;
+    const XLSX = await import('xlsx'), workbook = XLSX.utils.book_new(), comparisons = compareRuns(solvedRuns);
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([{ 'Tên sổ': book.name, 'Số lượt': book.runs.length, 'Ngày cập nhật': new Date().toLocaleString('vi-VN') }]), 'Thông tin');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(book.benchmarks.map((b) => ({ 'Tên mốc': b.name, 'Cao độ chuẩn (mm)': b.elevation }))), 'Mốc chuẩn');
+    const points = []; solvedRuns.forEach((run) => run.points.forEach((point) => points.push({ 'Lượt đo': run.runName, 'Thứ tự': point.index, 'Tên điểm': point.name, 'Cao độ (mm)': point.elevation })));
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(points), 'Tất cả điểm');
+    const compareRows = []; comparisons.forEach((group) => group.values.forEach((value) => compareRows.push({ Điểm: group.name, 'Lượt đo': value.runName, 'Cao độ (mm)': value.elevation, 'Max-Min (mm)': group.spread })));
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(compareRows), 'So sánh');
+    const adjustmentRows = []; solvedRuns.forEach((solved) => { const adjusted = adjustSolvedRun(solved, book.adjustmentCoefficient); adjusted.segments?.forEach((row, index) => adjustmentRows.push({ 'Lượt đo': solved.runName, Trạm: index + 1, 'Điểm sau': row.fromName, 'Điểm trước': row.point, 'Khoảng cách (m)': row.distance, 'Δh đo (mm)': row.delta, 'Số hiệu chỉnh v (mm)': row.correction, 'Δh bình sai (mm)': row.adjustedDelta, 'Cao độ bình sai (mm)': row.adjustedElevation, 'Sai số khép (mm)': adjusted.closure, 'Sai số cho phép (mm)': adjusted.allowable ?? '', 'Đánh giá': adjusted.allowable === null ? '' : adjusted.passed ? 'ĐẠT' : 'KHÔNG ĐẠT' })); });
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(adjustmentRows), 'Bình sai');
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows(outward)), 'Lượt đi');
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows(returning)), 'Lượt về');
-    workbook.Props = { Comments: JSON.stringify(book) };
-    const filename = `${book.name.replace(/[^a-zA-Z0-9À-ỹ_-]+/g, '_')}.xlsx`;
-    if (!Capacitor.isNativePlatform()) { XLSX.writeFile(workbook, filename); return; }
-    const base64 = XLSX.write(workbook, { type: 'base64', bookType: 'xlsx' });
-    const result = await Filesystem.writeFile({ path: filename, data: base64, directory: Directory.Cache });
-    await Share.share({ title: book.name, text: 'Sổ thủy chuẩn', url: result.uri, dialogTitle: 'Lưu hoặc chia sẻ Excel' });
+    solvedRuns.forEach((solved, index) => {
+      const run = book.runs[index];
+      const rows = solved.rows.map((row, i) => ({ Trạm: i + 1, 'Điểm sau': row.fromName, 'H sau (mm)': row.fromElevation, 'BS trên': run.mode === 'three' ? row.bsUpper : '', 'BS giữa': run.mode === 'three' ? row.bsMiddle : '', 'BS dưới': run.mode === 'three' ? row.bsLower : '', 'BS (mm)': row.bs, 'D sau (m)': row.db, 'FS trên': run.mode === 'three' ? row.fsUpper : '', 'FS giữa': run.mode === 'three' ? row.fsMiddle : '', 'FS dưới': run.mode === 'three' ? row.fsLower : '', 'FS (mm)': row.fs, 'D trước (m)': row.df, 'D trạm (m)': row.distance, 'ΔD (m)': row.distanceDifference, 'Δh (mm)': row.delta, 'Điểm trước': row.point, 'H trước (mm)': row.elevation }));
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), (run.name || `Lượt ${index + 1}`).replace(/[\\/?*[\]:]/g, '_').slice(0, 31));
+    });
+    workbook.Props = { Comments: JSON.stringify(book) }; const filename = nextExportName(desired.trim());
+    if (!Capacitor.isNativePlatform()) XLSX.writeFile(workbook, filename); else { const base64 = XLSX.write(workbook, { type: 'base64', bookType: 'xlsx' }); const result = await Filesystem.writeFile({ path: filename, data: base64, directory: Directory.Cache }); await Share.share({ title: book.name, url: result.uri, dialogTitle: 'Lưu hoặc chia sẻ Excel' }); }
+    setToast({ text: `Đã xuất ${filename}` });
   }
+  async function importExcel(file) { try { const XLSX = await import('xlsx'), workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' }); if (!workbook.Props?.Comments) throw new Error('Không có dữ liệu sổ'); const raw = JSON.parse(workbook.Props.Comments), imported = raw.schemaVersion === 2 ? normalizeBook(raw) : migrateLegacyBook(raw); const copy = normalizeBook({ ...imported, id: uid(), name: `${imported.name || file.name} (nhập)`, createdAt: Date.now(), updatedAt: Date.now() }); setBook(copy); setRunId(copy.runs[0].id); setStationIndex(0); setToast({ text: 'Đã nhập thành sổ mới' }); } catch (error) { console.error(error); alert('File Excel không đúng định dạng sổ thủy chuẩn.'); } }
 
-  async function importExcel(event) {
-    const file = event.target.files?.[0]; if (!file) return;
-    try {
-      const XLSX = await import('xlsx');
-      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
-      if (workbook.Props?.Comments) {
-        const restored = JSON.parse(workbook.Props.Comments); restored.id = uid(); restored.name += ' (nhập)'; setBook(normalizeBookNames(restored));
-      } else {
-        const info = XLSX.utils.sheet_to_json(workbook.Sheets['Thông tin'])[0];
-        const readRows = (name) => XLSX.utils.sheet_to_json(workbook.Sheets[name] || {}).map((r) => ({ id: uid(), point: String(r['Điểm sau'] || ''), distance: String(r['Khoảng cách (m)'] ?? ''), bs: String(r.BS ?? ''), fs: String(r.FS ?? '') }));
-        setBook(normalizeBookNames({ ...makeBook(), name: info?.['Tên sổ'] || file.name, startName: info?.['Mốc đầu'] || '', startElevation: String(info?.['Cao độ đầu (mm)'] ?? ''), endName: info?.['Mốc cuối'] || '', outward: readRows('Lượt đi'), returning: readRows('Lượt về') }));
-      }
-      setMessage('Đã nhập dữ liệu Excel');
-    } catch { alert('File Excel không đúng định dạng sổ thủy chuẩn.'); }
-    event.target.value = '';
-  }
-
-  const activeRows = tab === 'outward' ? outward : returning;
-  const direction = tab === 'outward' ? 'outward' : 'returning';
-  return <div className="app">
-    <header><div><span className="eyebrow">ĐO CAO HÌNH HỌC · mm</span><h1>Sổ thủy chuẩn</h1></div><BookOpen size={28}/></header>
-    <main>
-      <section className="card book-info">
-        <label className="wide">Tên sổ<input value={book.name} onChange={(e) => patch({ name: e.target.value })}/></label>
-        <label>Mốc đầu<input autoCapitalize="characters" value={book.startName} onChange={(e) => patch({ startName: uppercaseName(e.target.value) })}/></label>
-        <label>Cao độ đầu (mm)<input inputMode="decimal" value={book.startElevation} onChange={(e) => patch({ startElevation: e.target.value })}/></label>
-        <label>Mốc cuối<input autoCapitalize="characters" value={book.endName} onChange={(e) => patch({ endName: uppercaseName(e.target.value) })}/></label>
-      </section>
-      <div className="actions">
-        <button onClick={newBook}><Plus/>Mới</button><button className="primary" onClick={saveCurrent}><Save/>Lưu</button>
-        <select aria-label="Mở sổ" value="" onChange={(e) => openBook(e.target.value)}><option value="">Mở sổ…</option>{books.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
-        <button onClick={exportExcel}><Download/>Excel</button><button onClick={() => importRef.current.click()}><FileUp/>Nhập</button>
-        <input ref={importRef} hidden type="file" accept=".xlsx,.xls" onChange={importExcel}/>
-      </div>
-      <nav className="tabs"><button className={tab === 'outward' ? 'active' : ''} onClick={() => setTab('outward')}>Lượt đi<br/><small>{book.startName} → {book.endName}</small></button><button className={tab === 'returning' ? 'active' : ''} onClick={() => setTab('returning')}>Lượt về<br/><small>{book.endName} → {book.startName}</small></button><button className={tab === 'result' ? 'active' : ''} onClick={() => setTab('result')}>Kết quả</button></nav>
-      {tab !== 'result' ? <>
-        <section className="route-summary"><span>Cao độ đầu <b>{format(tab === 'outward' ? Number(book.startElevation) : endElevation)}</b></span><span>Số trạm <b>{activeRows.length}</b></span><span>Cao độ cuối <b>{format(activeRows.at(-1)?.elevation ?? null)}</b></span></section>
-        <section className="stations">{activeRows.map((row, index) => <article className="station" key={row.id}>
-          <div className="station-head"><b>Trạm {index + 1}</b><span>{row.fromName || '—'} → {row.point || '—'}</span><button className="icon danger" aria-label="Xóa trạm" onClick={() => removeRow(direction, row.id)}><Trash2/></button></div>
-          <div className="station-grid">
-            <label>Điểm BS<input value={row.fromName} disabled/></label><label>H điểm BS<input value={format(row.fromElevation)} disabled/></label>
-            <label>BS (mm)<input className="measure" inputMode="decimal" value={book[direction][index].bs} onChange={(e) => patchRow(direction, row.id, 'bs', e.target.value)}/></label>
-            <label>HI<input value={format(row.hi)} disabled/></label><label>FS (mm)<input className="measure" inputMode="decimal" value={book[direction][index].fs} onChange={(e) => patchRow(direction, row.id, 'fs', e.target.value)}/></label>
-            <label>Điểm FS<input autoCapitalize="characters" value={book[direction][index].point} onChange={(e) => patchRow(direction, row.id, 'point', uppercaseName(e.target.value))}/></label>
-            <label>Khoảng cách (m)<input inputMode="decimal" placeholder="Không bắt buộc" value={book[direction][index].distance ?? ''} onChange={(e) => patchRow(direction, row.id, 'distance', e.target.value)}/></label>
-          </div><div className="calc-line"><span>Δh <b>{format(row.delta)}</b></span><span>H({row.point || '?'}) <b>{format(row.elevation)}</b> mm</span></div>
-        </article>)}</section>
-        <div className="add-bar"><button className="primary" onClick={() => addRows(direction, 1)}><Plus/>Thêm trạm</button><button onClick={() => { const value = prompt('Số trạm cần thêm (1–200):', '10'); const n = Math.min(200, Math.max(1, Number(value) || 0)); if (value) addRows(direction, n); }}>Thêm nhiều</button></div>
-      </> : <Results book={book} endElevation={endElevation} closure={closure} comparisons={comparisons} adjustment={adjustment} onCoefficientChange={(value) => patch({ toleranceCoefficient: value })}/>}{/* tab content */}
-    </main>
-    {message && <div className="toast">{message}</div>}
-  </div>;
+  return <div className="app-v3"><header className="topbar"><div className="brand"><div className="eyebrow">THỦY CHUẨN · mm</div><h1>{book.name}</h1></div><button className="iconbtn" onClick={renameBook} aria-label="Đổi tên sổ">✎</button></header><main>{tab !== 'files' && <RunPicker runs={book.runs} runId={activeRun.id} onSelect={selectRun} onAdd={addRun}/>}
+    {tab === 'measure' && <Measure run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} updateStation={updateStation} updateRun={updateRun} finish={finishStation}/>}
+    {tab === 'route' && <Route run={activeRun} solved={activeSolved} settingsOpen={settingsOpen} setSettingsOpen={setSettingsOpen} updateRun={updateRun} addStation={addStation} edit={(index) => { setStationIndex(index); setTab('measure'); }} remove={deleteStation} duplicate={() => { const copy = { ...structuredClone(activeRun), id: uid(), name: `${activeRun.name} - bản sao`, stations: activeRun.stations.map((s) => ({ ...s, id: uid() })) }; updateBook((b) => ({ ...b, runs: [...b.runs, copy] })); selectRun(copy.id); }} deleteRun={() => { if (book.runs.length <= 1) return alert('Sổ cần ít nhất 1 lượt.'); if (confirm('Xóa lượt này?')) { const runs = book.runs.filter((r) => r.id !== activeRun.id); updateBook((b) => ({ ...b, runs })); selectRun(runs[0].id); } }}/>}
+    {tab === 'result' && <Results book={book} solvedRuns={solvedRuns} updateBook={updateBook}/>}
+    {tab === 'files' && <Files book={book} books={books} updateBook={updateBook} setBook={(value) => { const normalized = normalizeBook(value); setBook(normalized); setRunId(normalized.runs[0].id); setStationIndex(0); }} setBooks={setBooks} newBook={newBook} save={save} saveAs={saveAs} rename={renameBook} exportExcel={exportExcel} fileRef={fileRef} importExcel={importExcel}/>}
+  </main><nav className="bottom">{[['measure','⌖','Đo'],['route','☷','Tuyến'],['result','✓','Kết quả'],['files','▣','Sổ / Tệp']].map(([id,icon,label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}><span>{icon}</span>{label}</button>)}</nav>{toast && <div className="toast"><span>{toast.text}</span>{toast.action && <button onClick={() => { toast.action.fn(); setToast(null); }}>{toast.action.label}</button>}</div>}</div>;
 }
 
-function Results({ book, endElevation, closure, comparisons, adjustment, onCoefficientChange }) {
-  return <section className="results">
-    <div className="result-hero"><span>Sai số khép</span><strong className={Math.abs(closure || 0) > 10 ? 'bad' : ''}>{format(closure)} mm</strong><small>H({book.startName}) tính lại − H({book.startName}) ban đầu</small></div>
-    <div className="result-grid"><div><span>H({book.startName})</span><b>{format(Number(book.startElevation))} mm</b></div><div><span>H({book.endName})</span><b>{format(endElevation)} mm</b></div><div><span>Chênh cao đi</span><b>{format(endElevation === null ? null : endElevation - Number(book.startElevation))} mm</b></div></div>
-    <Adjustment adjustment={adjustment} closure={closure} coefficient={book.toleranceCoefficient ?? '20'} onCoefficientChange={onCoefficientChange}/>
-    <h2>So sánh mốc DG/DC đo hai lần</h2>
-    {comparisons.length ? <div className="comparison"><div className="comparison-row heading"><b>Mốc</b><b>Lần 1</b><b>Lần 2</b><b>Lệch</b></div>{comparisons.map((r) => <div className="comparison-row" key={r.name}><b>{r.name}</b><span>{format(r.first)}</span><span>{format(r.second)}</span><b className={Math.abs(r.difference) > 10 ? 'bad' : ''}>{format(r.difference)}</b></div>)}</div> : <p className="empty">Chưa có mốc DG/DC cùng tên ở cả hai lượt. TP và TV được bỏ qua.</p>}
-  </section>;
+function RunPicker({ runs, runId, onSelect, onAdd }) { return <div className="runbar"><select aria-label="Chọn lượt đo" value={runId} onChange={(e) => onSelect(e.target.value)}>{runs.map((run) => <option key={run.id} value={run.id}>{run.name} · {run.startPoint || '?'}</option>)}</select><button className="primary addrun" onClick={onAdd} aria-label="Thêm lượt">＋</button></div>; }
+function Measure({ run, solved, index, setIndex, updateStation, updateRun, finish }) {
+  const station = run.stations[index], row = solved.rows[index]; if (!station) return null;
+  return <section className="measure-shell"><div className="measure-head"><div className="runlabel"><small>{run.name}</small><strong>Trạm {index + 1} / {run.stations.length}</strong></div><div className="seg"><button className={run.mode === 'single' ? 'active' : ''} onClick={() => updateRun(run.id, { mode: 'single' })}>1 chỉ</button><button className={run.mode === 'three' ? 'active' : ''} onClick={() => updateRun(run.id, { mode: 'three' })}>3 chỉ</button></div></div><div className="anchorline"><span>ĐIỂM SAU</span><b>{row?.fromName || run.startPoint || '—'}</b><small>H = {format(row?.fromElevation)} mm</small></div><div className="readings">{run.mode === 'single' ? <><div className="reading"><div className="reading-title">MIA SAU <em>BS</em></div><input className="hero-input" aria-label="BS" inputMode="decimal" value={station.bs} onChange={(e) => updateStation(run, station.id, 'bs', e.target.value)}/></div><div className="reading"><div className="reading-title">MIA TRƯỚC <em>FS</em></div><input className="hero-input" aria-label="FS" inputMode="decimal" value={station.fs} onChange={(e) => updateStation(run, station.id, 'fs', e.target.value)}/></div></> : <><Staff title="MIA SAU" prefix="bs" station={station} row={row} update={(field,value) => updateStation(run, station.id, field, value)}/><Staff title="MIA TRƯỚC" prefix="fs" station={station} row={row} update={(field,value) => updateStation(run, station.id, field, value)}/></>}</div>{run.mode === 'single' ? <div className="distance-manual"><span>Khoảng cách đoạn (m) · tùy chọn</span><input inputMode="decimal" value={station.distance} onChange={(e) => updateStation(run, station.id, 'distance', e.target.value)}/></div> : <div className="distance-manual"><span>ΔD <b>{format(row?.distanceDifference)} m</b></span><span>D trạm <b>{format(row?.distance)} m</b></span></div>}<div className="pointbox"><label>ĐIỂM TỚI<input aria-label="Điểm tới" autoCapitalize="characters" value={station.point} onChange={(e) => updateStation(run, station.id, 'point', e.target.value)}/></label></div><div className="live"><div><span>Δh</span><b>{format(row?.delta)} mm</b></div><div><span>H({station.point || '?'})</span><b>{format(row?.elevation)} mm</b></div><div><span>{run.mode === 'single' ? 'HI' : 'D trạm'}</span><b>{format(run.mode === 'single' ? row?.hi : row?.distance)} {run.mode === 'single' ? 'mm' : 'm'}</b></div></div><div className="field-actions"><button onClick={() => setIndex(Math.max(0,index-1))} disabled={index === 0}>‹</button><button className="primary finish" onClick={finish}>✓ XONG TRẠM</button><button onClick={() => setIndex(Math.min(run.stations.length-1,index+1))} disabled={index === run.stations.length-1}>›</button></div></section>;
 }
+function Staff({ title, prefix, station, row, update }) { return <div className="reading"><div className="reading-title">{title}<em>{prefix.toUpperCase()}</em></div><div className="threegrid">{[['Upper','Trên'],['Middle','Giữa'],['Lower','Dưới']].map(([suffix,label]) => <label key={suffix}>{label}<input inputMode="decimal" value={station[`${prefix}${suffix}`]} onChange={(e) => update(`${prefix}${suffix}`,e.target.value)}/></label>)}</div><div className="staffmeta"><span>D <b>{format(prefix === 'bs' ? row?.db : row?.df)} m</b></span><span>e <b>{format(prefix === 'bs' ? row?.bsMiddleError : row?.fsMiddleError)} mm</b></span></div></div>; }
 
-function Adjustment({ adjustment, closure, coefficient, onCoefficientChange }) {
-  return <section className="adjustment">
-    <div className="adjustment-title"><div><span>BÌNH SAI CAO ĐỘ</span><h2>{adjustment.method}</h2></div><label>Hệ số C (mm/√km)<input inputMode="decimal" value={coefficient} onChange={(e) => onCoefficientChange(e.target.value)}/></label></div>
-    <div className="adjustment-summary">
-      <div><span>Sai số khép</span><b>{format(closure)} mm</b></div>
-      <div><span>Tổng chiều dài</span><b>{adjustment.totalDistanceKm === null ? 'Chưa nhập đủ' : `${format(adjustment.totalDistanceKm)} km`}</b></div>
-      <div><span>Sai số cho phép</span><b>{adjustment.allowable === null ? 'Chưa đánh giá' : `±${format(adjustment.allowable)} mm`}</b></div>
-      <div><span>Đánh giá</span><b className={adjustment.passed === false ? 'bad' : 'good'}>{adjustment.passed === null ? 'Cần đủ khoảng cách' : adjustment.passed ? 'ĐẠT' : 'KHÔNG ĐẠT'}</b></div>
-    </div>
-    {!adjustment.byDistance && <p className="engineering-note">Chưa nhập đủ khoảng cách cho mọi đoạn. Số hiệu chỉnh đang được phân phối đều theo số trạm máy; nhập đầy đủ khoảng cách để bình sai theo chiều dài tuyến.</p>}
-    <div className="adjustment-table"><div className="adjustment-row heading"><b>Điểm</b><b>v (mm)</b><b>Δh BS</b><b>H bình sai</b></div>{adjustment.segments.map((row, index) => <div className="adjustment-row" key={`${row.direction}-${row.id}-${index}`}><span><small>{row.direction}</small><b>{row.point || '—'}</b></span><span>{format(row.correction)}</span><span>{format(row.adjustedDelta)}</span><b>{format(row.adjustedElevation)}</b></div>)}</div>
-  </section>;
-}
+function Route({ run, solved, settingsOpen, setSettingsOpen, updateRun, addStation, edit, remove, duplicate, deleteRun }) { return <section className="route-shell"><div className="card runsummary"><div className="runsummary-top"><div className="runsummary-main"><small>TUYẾN ĐANG CHỌN</small><h2>{run.name}</h2><p>{run.startPoint || '—'} → {solved.points.at(-1)?.name || '—'} · {run.stations.length} trạm</p></div><button className="settings-btn" onClick={() => setSettingsOpen(!settingsOpen)}>⚙</button></div>{settingsOpen && <div className="runsettings open"><div className="twofields"><label>Tên lượt<input value={run.name} onChange={(e) => updateRun(run.id,{name:e.target.value})}/></label><label>Điểm đầu<input value={run.startPoint} onChange={(e) => updateRun(run.id,{startPoint:uppercaseName(e.target.value)})}/></label></div><div className="runactions"><button onClick={duplicate}>Nhân bản</button><button className="danger" onClick={deleteRun}>Xóa lượt</button></div></div>}</div>{!solved.solved && <p className="warning">Lượt này chưa chứa mốc chuẩn có cao độ biết trước.</p>}<div className="swipe-hint">Vuốt trái một trạm để xóa · chạm trạm để sửa</div><div className="route-list">{solved.rows.map((row,index) => <SwipeStation key={row.id} row={row} index={index} edit={edit} remove={remove}/>)}</div><button className="primary addstation" onClick={addStation}>＋ Thêm trạm</button></section>; }
+function SwipeStation({ row, index, edit, remove }) { const [open,setOpen] = useState(false), [drag,setDrag] = useState(0); const start = useRef(null); const down = (e) => { const touch=e.touches[0]; start.current={x:touch.clientX,y:touch.clientY,horizontal:null}; }; const move=(e)=>{ if(!start.current)return; const t=e.touches[0],dx=t.clientX-start.current.x,dy=t.clientY-start.current.y;if(start.current.horizontal===null&&Math.abs(dx)>8)start.current.horizontal=Math.abs(dx)>Math.abs(dy)*1.15;if(!start.current.horizontal)return;e.preventDefault();setDrag(Math.max(-86,Math.min(0,(open?-86:0)+dx)));}; const end=()=>{if(start.current?.horizontal)setOpen(drag<-43);setDrag(0);start.current=null;}; return <div className={`swipe-row ${open?'open':''}`} onTouchStart={down} onTouchMove={move} onTouchEnd={end}><div className="swipe-actions"><button onClick={(e)=>{e.stopPropagation();remove(index);}}>Xóa</button></div><button className="routecard" style={drag?{transform:`translateX(${drag}px)`}:undefined} onClick={()=>open?setOpen(false):edit(index)}><span className="route-num">{index+1}</span><span className="route-body"><b>{row.fromName||'—'} → {row.point||'—'}</b><small>BS {format(row.bs)} · FS {format(row.fs)} · Δh {format(row.delta)} mm</small><small>H tới {format(row.elevation)} mm{row.distance!==null?` · D ${format(row.distance)} m`:''}</small></span><span className="route-chevron">›</span></button></div>; }
+
+function Results({ book, solvedRuns, updateBook }) { const comparisons=compareRuns(solvedRuns), coefficient=book.settings.toleranceCoefficient; return <section>{solvedRuns.map((solved)=><div className="card" key={solved.runId}><h3>{solved.runName}</h3><div className="metric"><div><span>Số trạm</span><b>{solved.rows.length}</b></div><div><span>Chiều dài</span><b>{solved.totalDistance===null?'Chưa đủ':`${format(solved.totalDistance)} m`}</b></div><div><span>ΣΔD</span><b>{format(solved.sumDistanceDifference)} m</b></div></div>{solved.checks.length?solved.checks.map((check)=><div className="check" key={`${solved.runId}-${check.index}`}><b>{check.name}</b><span>Chuẩn {format(check.known)} · Đo {format(check.measured)} · Lệch {format(check.difference)} mm</span></div>):<p className="warning">Không có mốc chuẩn trong tuyến.</p>}<Adjustment solved={solved} coefficient={coefficient}/></div>)}<div className="card"><h3>So sánh DG/DC giữa các lượt</h3>{comparisons.length?comparisons.map((group)=><div className="compare" key={group.name}><div className="compareHead"><b>{group.name}</b><span>Max − Min: {format(group.spread)} mm</span></div>{group.values.map((value)=><div className="compareLine" key={value.runId}><span>{value.runName}</span><b>{format(value.elevation)} mm</b></div>)}</div>):<p className="empty">Chưa có DG/DC cùng tên ở ít nhất 2 lượt.</p>}</div><div className="card"><label>Hệ số C (mm/√km)<input inputMode="decimal" value={coefficient} onChange={(e)=>updateBook((b)=>({...b,settings:{...b.settings,toleranceCoefficient:e.target.value}}))}/></label><p className="note">C là tham số do người dùng cấu hình.</p></div></section>; }
+function Adjustment({ solved, coefficient }) { const adjusted=adjustSolvedRun(solved,coefficient); if(!adjusted.available)return null; return <><div className="note">Sai số khép <b>{format(adjusted.closure)} mm</b> · {adjusted.method}{adjusted.allowable===null?'':` · Cho phép ±${format(adjusted.allowable)} mm · ${adjusted.passed?'ĐẠT':'KHÔNG ĐẠT'}`}</div><div className="adjustment-table"><div className="adjustment-row heading"><b>Điểm</b><b>v</b><b>Δh BS</b><b>H BS</b></div>{adjusted.segments.map((row)=><div className="adjustment-row" key={row.id}><b>{row.point}</b><span>{format(row.correction)}</span><span>{format(row.adjustedDelta)}</span><b>{format(row.adjustedElevation)}</b></div>)}</div></>; }
+
+function Files({ book, books, updateBook, setBook, setBooks, newBook, save, saveAs, rename, exportExcel, fileRef, importExcel }) { const persist=(next)=>{setBooks(next);localStorage.setItem(STORAGE_KEYS.books,JSON.stringify(next));}; return <section><div className="card"><h3>Sổ hiện tại</h3><div className="actions"><button onClick={newBook}>Mới</button><button className="primary" onClick={save}>Lưu</button><button onClick={saveAs}>Lưu thành…</button><button onClick={rename}>Đổi tên</button><button onClick={exportExcel}>Xuất Excel</button><button onClick={()=>fileRef.current.click()}>Nhập Excel</button><input ref={fileRef} hidden type="file" accept=".xlsx,.xls" onChange={(e)=>{const file=e.target.files?.[0];if(file)importExcel(file);e.target.value='';}}/></div></div><div className="card"><div className="card-title"><h3>Mốc chuẩn</h3><button onClick={()=>updateBook((b)=>({...b,benchmarks:[...b.benchmarks,createBenchmark()]}))}>＋ Mốc</button></div>{book.benchmarks.map((benchmark)=><div className="benchrow" key={benchmark.id}><input aria-label="Tên mốc" value={benchmark.name} onChange={(e)=>updateBook((b)=>({...b,benchmarks:b.benchmarks.map((x)=>x.id===benchmark.id?{...x,name:uppercaseName(e.target.value)}:x)}))}/><input aria-label="Cao độ mốc" inputMode="decimal" value={benchmark.elevation} onChange={(e)=>updateBook((b)=>({...b,benchmarks:b.benchmarks.map((x)=>x.id===benchmark.id?{...x,elevation:e.target.value}:x)}))}/><span>mm</span><button className="danger" onClick={()=>updateBook((b)=>({...b,benchmarks:b.benchmarks.filter((x)=>x.id!==benchmark.id)}))}>×</button></div>)}</div><div className="card"><h3>Sổ đã lưu</h3>{books.length?books.map((saved)=><div className="saved" key={saved.id}><div><b>{saved.name}</b><small>{new Date(saved.updatedAt).toLocaleString('vi-VN')}</small><small>{saved.runs.length} lượt · {saved.runs.reduce((sum,run)=>sum+run.stations.length,0)} trạm</small></div><div className="saved-actions"><button onClick={()=>setBook(structuredClone(saved))}>Mở</button><button className="danger" onClick={()=>{if(confirm('Xóa sổ đã lưu này?'))persist(books.filter((x)=>x.id!==saved.id));}}>×</button></div></div>):<p className="empty">Chưa có sổ đã lưu.</p>}</div></section>; }
 
 createRoot(document.getElementById('root')).render(<React.StrictMode><App/></React.StrictMode>);
