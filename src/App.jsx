@@ -57,7 +57,7 @@ const NAV_ITEMS = [
   { id: 'files', label: 'Sổ & tệp', Icon: FolderOpen },
 ];
 
-const SWIPE_REVEAL_PX = 88;
+const SWIPE_REVEAL_PX = 80;
 
 function MeterInput({ value, onValueChange, staffReading = false, className = '', placeholder = '0,000', ...props }) {
   const normalize = staffReading ? normalizeStaffInput : normalizeMeterInput;
@@ -548,9 +548,15 @@ function SwipeStation({ row, index, edit, remove }) {
 
   return (
     <div className={`swipe-row ${open ? 'open' : ''} ${revealing ? 'revealing' : ''}`}>
-      <div className="swipe-actions" aria-hidden={!open && !revealing}>
-        <button tabIndex={open ? 0 : -1} aria-label={`Xóa trạm ${index + 1}`} onClick={(event) => { event.stopPropagation(); setOpen(false); remove(index); }}><Trash2 /><span>Xóa</span></button>
-      </div>
+      <button
+        className="swipe-delete"
+        tabIndex={open ? 0 : -1}
+        aria-hidden={!open}
+        aria-label={`Xóa trạm ${index + 1}`}
+        onClick={(event) => { event.stopPropagation(); setOpen(false); remove(index); }}
+      >
+        <Trash2 /><span>Xóa</span>
+      </button>
       <button
         className="routecard"
         style={dragOffset === null ? undefined : { transform: `translateX(${dragOffset}px)` }}

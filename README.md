@@ -2,6 +2,11 @@
 
 Ứng dụng ghi, tính và bình sai cao độ cho nhiều lượt đo độc lập, dùng chung mã nguồn cho web, iPhone và Android.
 
+## Phiên bản 2.3.2
+
+- Sửa bố cục vuốt trái để xóa trạm: thẻ nội dung luôn giữ nguyên toàn bộ chiều rộng và chỉ dịch chuyển 80 px trên nút xóa nền.
+- Ngăn các trị số kỹ thuật `BS`, `FS` và `Δh` bị co, cắt hoặc biến dạng khi mở thao tác xóa.
+
 ## Phiên bản 2.3.1
 
 - Toàn bộ số liệu theo mét trên giao diện và PDF dùng dấu phẩy thập phân Việt Nam: `2,000 m`, `1,585 m`, `0,750 m`.
