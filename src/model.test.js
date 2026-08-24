@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareRuns, createBook, createRun, createStation, removeStation, restoreStation, saveAsCopy, solveRun, staffDistance } from './model';
+import { adjustLevelingNetwork, compareRuns, createBook, createRun, createStation, removeStation, restoreStation, saveAsCopy, solveRun, staffDistance } from './model';
 
 const benchmarks = [{ name: 'DG3', elevation: 2222 }, { name: 'DG4', elevation: 1641 }];
 const makeRun = (startPoint, points, deltas) => ({ ...createRun(1, startPoint), stations: points.map((point, i) => ({ ...createStation(point), bs: '1000', fs: String(1000 - deltas[i]) })) });
@@ -35,5 +35,22 @@ describe('schema v2 và bộ giải tuyến', () => {
   it('Save As tạo ID mới và không thay đổi sổ gốc', () => {
     const original = createBook(), copy = saveAsCopy(original, 'Sổ mới');
     expect(copy.id).not.toBe(original.id); expect(copy.name).toBe('Sổ mới'); expect(original.name).not.toBe('Sổ mới');
+  });
+  it('bình sai chung lượt đi-về và trả cao độ DC', () => {
+    const controls = [{ name: 'DG1', elevation: 10000 }];
+    const outward = solveRun(makeRun('DG1', ['TP1', 'DC1'], [500, 500]), controls);
+    const returning = solveRun(makeRun('DC1', ['TP2', 'DG1'], [-499, -499]), controls);
+    const adjusted = adjustLevelingNetwork([outward, returning], controls);
+    expect(adjusted.available).toBe(true);
+    expect(adjusted.degreesOfFreedom).toBe(1);
+    expect(adjusted.points.find((point) => point.name === 'DC1')).toEqual(expect.objectContaining({ elevation: 10999, fixed: false }));
+    expect(adjusted.segments.every((segment) => Math.abs(segment.correction + 0.5) < 1e-8)).toBe(true);
+  });
+  it('giữ mốc chuẩn cố định nhưng vẫn bình sai DC và TP', () => {
+    const controls = [{ name: 'DG1', elevation: 10000 }, { name: 'DG2', elevation: 12001 }];
+    const run = solveRun(makeRun('DG1', ['DC1', 'DG2'], [1000, 1000]), controls);
+    const adjusted = adjustLevelingNetwork([run], controls);
+    expect(adjusted.points.find((point) => point.name === 'DG2').elevation).toBe(12001);
+    expect(adjusted.points.find((point) => point.name === 'DC1').elevation).toBeCloseTo(11000.5, 8);
   });
 });

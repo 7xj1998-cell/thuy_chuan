@@ -87,6 +87,100 @@ export function adjustSolvedRun(solved, coefficient = 20) {
   return { available: true, closure, method: solved.fullDistance ? 'Theo chiều dài' : 'Theo số trạm', allowable, passed: allowable === null ? null : Math.abs(closure) <= allowable, segments };
 }
 
+function solveLinearSystem(matrix, vector) {
+  const size = vector.length;
+  const augmented = matrix.map((row, index) => [...row, vector[index]]);
+  for (let column = 0; column < size; column += 1) {
+    let pivot = column;
+    for (let row = column + 1; row < size; row += 1) {
+      if (Math.abs(augmented[row][column]) > Math.abs(augmented[pivot][column])) pivot = row;
+    }
+    if (Math.abs(augmented[pivot][column]) < 1e-12) return null;
+    [augmented[column], augmented[pivot]] = [augmented[pivot], augmented[column]];
+    const divisor = augmented[column][column];
+    for (let item = column; item <= size; item += 1) augmented[column][item] /= divisor;
+    for (let row = 0; row < size; row += 1) {
+      if (row === column) continue;
+      const factor = augmented[row][column];
+      for (let item = column; item <= size; item += 1) augmented[row][item] -= factor * augmented[column][item];
+    }
+  }
+  return augmented.map((row) => row[size]);
+}
+
+export function adjustLevelingNetwork(solvedRuns, benchmarks, coefficient = 20) {
+  const fixed = new Map();
+  benchmarks.forEach((benchmark) => {
+    const name = uppercaseName(benchmark.name).trim(), elevation = numberOf(benchmark.elevation);
+    if (name && elevation !== null) fixed.set(name, elevation);
+  });
+
+  const observations = [];
+  solvedRuns.forEach((run) => run.rows.forEach((row) => {
+    if (!row.fromName || !row.point || row.delta === null) return;
+    observations.push({ ...row, runId: run.runId, runName: run.runName, measuredDelta: row.delta });
+  }));
+  if (!observations.length || !fixed.size) return { available: false, reason: !fixed.size ? 'Chưa có mốc cao độ chuẩn.' : 'Chưa có trị đo hoàn chỉnh.', points: [], segments: [] };
+
+  const adjacency = new Map();
+  const connect = (from, to) => { if (!adjacency.has(from)) adjacency.set(from, new Set()); adjacency.get(from).add(to); };
+  observations.forEach((row) => { connect(row.fromName, row.point); connect(row.point, row.fromName); });
+  const anchored = new Set(), queue = [...fixed.keys()].filter((name) => adjacency.has(name));
+  queue.forEach((name) => anchored.add(name));
+  while (queue.length) {
+    const name = queue.shift();
+    adjacency.get(name)?.forEach((next) => { if (!anchored.has(next)) { anchored.add(next); queue.push(next); } });
+  }
+  const usable = observations.filter((row) => anchored.has(row.fromName) && anchored.has(row.point));
+  const ignored = observations.length - usable.length;
+  if (!usable.length) return { available: false, reason: 'Các trị đo chưa nối với mốc cao độ chuẩn.', points: [], segments: [], ignored };
+
+  const pointOrder = [];
+  usable.forEach((row) => [row.fromName, row.point].forEach((name) => { if (!pointOrder.includes(name)) pointOrder.push(name); }));
+  const unknowns = pointOrder.filter((name) => !fixed.has(name));
+  const unknownIndex = new Map(unknowns.map((name, index) => [name, index]));
+  const useDistanceWeights = usable.every((row) => row.distance !== null && row.distance > 0);
+  const normal = Array.from({ length: unknowns.length }, () => Array(unknowns.length).fill(0));
+  const right = Array(unknowns.length).fill(0);
+
+  usable.forEach((row) => {
+    const coefficients = Array(unknowns.length).fill(0);
+    if (unknownIndex.has(row.fromName)) coefficients[unknownIndex.get(row.fromName)] -= 1;
+    if (unknownIndex.has(row.point)) coefficients[unknownIndex.get(row.point)] += 1;
+    const fixedPart = (fixed.get(row.point) || 0) - (fixed.get(row.fromName) || 0);
+    const reducedObservation = row.measuredDelta - fixedPart;
+    const weight = useDistanceWeights ? 1 / (row.distance / 1000) : 1;
+    for (let i = 0; i < unknowns.length; i += 1) {
+      right[i] += weight * coefficients[i] * reducedObservation;
+      for (let j = 0; j < unknowns.length; j += 1) normal[i][j] += weight * coefficients[i] * coefficients[j];
+    }
+  });
+
+  const solution = unknowns.length ? solveLinearSystem(normal, right) : [];
+  if (solution === null) return { available: false, reason: 'Mạng chưa đủ điều kiện định vị cao độ.', points: [], segments: [], ignored };
+  const elevations = new Map(fixed);
+  unknowns.forEach((name, index) => elevations.set(name, solution[index]));
+  let weightedResidualSum = 0;
+  const segments = usable.map((row) => {
+    const adjustedDelta = elevations.get(row.point) - elevations.get(row.fromName);
+    const correction = adjustedDelta - row.measuredDelta;
+    const weight = useDistanceWeights ? 1 / (row.distance / 1000) : 1;
+    weightedResidualSum += weight * correction * correction;
+    return { ...row, correction, adjustedDelta, adjustedFromElevation: elevations.get(row.fromName), adjustedElevation: elevations.get(row.point) };
+  });
+  const degreesOfFreedom = usable.length - unknowns.length;
+  const sigma0 = degreesOfFreedom > 0 ? Math.sqrt(weightedResidualSum / degreesOfFreedom) : null;
+  const totalDistance = useDistanceWeights ? usable.reduce((sum, row) => sum + row.distance, 0) : null;
+  const allowable = totalDistance !== null && numberOf(coefficient) !== null ? numberOf(coefficient) * Math.sqrt(totalDistance / 1000) : null;
+  const points = pointOrder.map((name) => ({ name, elevation: elevations.get(name), fixed: fixed.has(name), observationCount: usable.filter((row) => row.fromName === name || row.point === name).length }));
+  return {
+    available: true,
+    method: useDistanceWeights ? 'Bình sai gián tiếp, trọng số nghịch đảo chiều dài' : 'Bình sai gián tiếp, đồng trọng số',
+    points, segments, observations: usable.length, unknowns: unknowns.length, degreesOfFreedom, sigma0,
+    maxCorrection: Math.max(...segments.map((row) => Math.abs(row.correction))), totalDistance, allowable, ignored
+  };
+}
+
 export function removeStation(run, index) {
   if (run.stations.length <= 1) return { removed: null, stations: run.stations };
   const stations = [...run.stations], [removed] = stations.splice(index, 1);

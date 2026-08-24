@@ -37,6 +37,10 @@ File Excel gồm các sheet **Thông tin**, **Mốc chuẩn**, **Tất cả đi�
 
 ## Bình sai cao độ
 
+- Bình sai được thực hiện chung cho toàn bộ các lượt trong sổ bằng mô hình bình sai gián tiếp. Các lượt được liên kết qua tên điểm trùng nhau, nên tuyến đi–về chỉ cần dùng cùng tên DC để nhận một cao độ DC sau bình sai.
+- Mốc có cao độ chuẩn được giữ cố định; mọi điểm chưa biết như DC, TP/TV đều tham gia hệ phương trình và xuất hiện trong bảng **Cao độ bình sai**.
+- Nếu tất cả đoạn có khoảng cách, trọng số lấy nghịch đảo chiều dài; nếu thiếu khoảng cách, toàn mạng dùng đồng trọng số để tránh trộn hai mô hình trọng số.
+- Bậc tự do bằng 0 được cảnh báo là mạng chưa có trị đo thừa: cao độ tính được nhưng chưa đủ điều kiện đánh giá độ tin cậy.
 - Nhập khoảng cách từng đoạn theo mét để phân phối sai số khép theo chiều dài.
 - Nếu thiếu khoảng cách, ứng dụng tạm phân phối đều theo số trạm máy và hiển thị cảnh báo nghiệp vụ.
 - Sai số cho phép tính theo `C × √K`, trong đó `K` là tổng chiều dài tuyến (km) và `C` mặc định là 20 mm/√km.
@@ -44,4 +48,4 @@ File Excel gồm các sheet **Thông tin**, **Mốc chuẩn**, **Tất cả đi�
 
 ## Tải APK từ GitHub
 
-Mỗi lần có commit lên nhánh `main`, workflow **Build mobile app** sẽ kiểm thử và tạo APK Android cùng IPA chưa ký. Vào **GitHub → Actions → Build mobile app → Artifacts** để tải `So-do-thuy-chuan_v2.0.0_Android` và `So-do-thuy-chuan_v2.0.0_unsigned`.
+Mỗi lần có commit lên nhánh `main`, workflow **Build mobile app** sẽ kiểm thử và tạo APK Android cùng IPA chưa ký. Tên artifact tự mang phiên bản, ví dụ `So-do-thuy-chuan_v2.0.1_Android` và `So-do-thuy-chuan_v2.0.1_unsigned`.
