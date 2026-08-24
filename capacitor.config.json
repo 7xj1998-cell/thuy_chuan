@@ -3,6 +3,10 @@
   "appName": "Sổ thủy chuẩn",
   "webDir": "dist",
   "bundledWebRuntime": false,
+  "backgroundColor": "#F2F5F4",
   "android": { "allowMixedContent": false },
-  "ios": { "contentInset": "automatic" }
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#F2F5F4"
+  }
 }
