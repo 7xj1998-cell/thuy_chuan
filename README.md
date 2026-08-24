@@ -55,4 +55,4 @@ File Excel gồm các sheet **Thông tin**, **Mốc chuẩn**, **Tất cả đi�
 
 ## Tải APK từ GitHub
 
-Mỗi lần có commit lên nhánh `main`, workflow **Build mobile app** sẽ kiểm thử và tạo APK Android cùng IPA chưa ký. Tên artifact tự mang phiên bản, ví dụ `So-do-thuy-chuan_v2.2.0_Android` và `So-do-thuy-chuan_v2.2.0_unsigned`.
+Mỗi lần có commit lên nhánh `main`, workflow **Build mobile app** sẽ kiểm thử và tạo APK Android cùng IPA chưa ký. Tên artifact tự mang phiên bản, ví dụ `So-do-thuy-chuan_v2.2.1_Android` và `So-do-thuy-chuan_v2.2.1_unsigned`.
