@@ -2,13 +2,14 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createBook, createStation, normalizeBook, solveRun } from './model';
+import { POINT_TYPE_SIDE } from './pointNames';
 import { createPdfDocument } from './report';
 
 describe('báo cáo PDF kỹ thuật', () => {
   it('tạo PDF nhiều trang với font Inter tiếng Việt và số liệu đã chuẩn hóa', async () => {
     const initial = createBook();
     const stations = Array.from({ length: 12 }, (_, index) => ({
-      ...createStation(`TP${index + 1}`),
+      ...createStation(`TP${index + 1}`, index === 4 ? POINT_TYPE_SIDE : undefined),
       bs: '1,330',
       fs: '1,105',
       distance: '',

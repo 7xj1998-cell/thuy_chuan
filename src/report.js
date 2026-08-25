@@ -3,6 +3,7 @@ import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { numberOf } from './calc';
 import { adjustLevelingNetwork, compareRuns, STORAGE_KEYS } from './model';
+import { POINT_TYPE_SIDE } from './pointNames';
 import interFontUrl from './assets/InterVariable.ttf?url';
 import { OPEN_ROUTE_WARNING } from './terminology';
 import {
@@ -90,6 +91,7 @@ export async function createExcelWorkbook(book, solvedRuns) {
   solvedRuns.forEach((run) => run.points.forEach((point) => pointRows.push({
     'Lượt đo': run.runName,
     'Thứ tự': point.index,
+    'Loại điểm': point.index === 0 ? 'ĐIỂM GỐC' : point.pointType === POINT_TYPE_SIDE ? 'TIA PHỤ' : 'ĐIỂM CHUYỀN',
     'Tên điểm': point.name,
     'Cao độ H (m)': metersFromMillimetersOrBlank(point.elevation),
   })));
@@ -107,9 +109,9 @@ export async function createExcelWorkbook(book, solvedRuns) {
     'Max-Min (mm)': EXCEL_MM_FORMAT,
   });
 
-  const adjustmentRows = network.segments.map((row, index) => ({
+  const adjustmentRows = network.segments.map((row) => ({
     'Lượt đo': row.runName,
-    Trạm: index + 1,
+    Trạm: row.index + 1,
     'Điểm sau': row.fromName,
     'Điểm trước': row.point,
     'Khoảng cách (m)': finiteOrBlank(row.distance),
@@ -136,10 +138,32 @@ export async function createExcelWorkbook(book, solvedRuns) {
   }));
   appendSheet(XLSX, workbook, 'Cao độ bình sai', adjustedPointRows, { 'Cao độ bình sai H (m)': EXCEL_METER_FORMAT });
 
+  const adjustedSidePoints = new Map((network.sidePoints || []).map((point) => [point.id, point]));
+  const sidePointRows = [];
+  solvedRuns.forEach((solved) => solved.sideRows.forEach((row) => {
+    const adjusted = adjustedSidePoints.get(`${solved.runId}-${row.id}`);
+    sidePointRows.push({
+      'Lượt đo': solved.runName,
+      Trạm: row.index + 1,
+      'Điểm gốc': row.fromName,
+      'Tên tia phụ': row.point,
+      'Δh (mm)': millimetersOrBlank(row.delta),
+      'Cao độ sơ bộ H (m)': metersFromMillimetersOrBlank(row.elevation),
+      'Cao độ suy ra sau bình sai H (m)': metersFromMillimetersOrBlank(adjusted?.elevation),
+      'Tham gia bình sai': 'KHÔNG',
+    });
+  }));
+  if (sidePointRows.length) appendSheet(XLSX, workbook, 'Tia phụ', sidePointRows, {
+    'Δh (mm)': EXCEL_SIGNED_MM_FORMAT,
+    'Cao độ sơ bộ H (m)': EXCEL_METER_FORMAT,
+    'Cao độ suy ra sau bình sai H (m)': EXCEL_METER_FORMAT,
+  });
+
   solvedRuns.forEach((solved, index) => {
     const run = book.runs[index];
-    const rows = solved.rows.map((row, stationIndex) => ({
-      Trạm: stationIndex + 1,
+    const rows = solved.rows.filter((row) => row.point).map((row) => ({
+      Trạm: row.index + 1,
+      'Loại điểm tới': row.pointType === POINT_TYPE_SIDE ? 'TIA PHỤ' : 'ĐIỂM CHUYỀN',
       'Điểm sau': row.fromName,
       'H sau (m)': metersFromMillimetersOrBlank(row.fromElevation),
       'BS trên (m)': run.mode === 'three' ? inputMetersOrBlank(row.bsUpper) : '',
@@ -288,14 +312,16 @@ export async function createPdfDocument(book, solvedRuns, options = {}) {
 
   solvedRuns.forEach((solved, runIndex) => {
     const run = book.runs[runIndex];
-    const endPoint = solved.points.at(-1)?.name || '—';
-    y = sectionTitle(`${run.name} · ${run.startPoint || '—'} → ${endPoint} · ${run.stations.length} trạm`, y);
+    const endPoint = solved.endPoint || run.startPoint || '—';
+    const reportRows = solved.rows.filter((row) => row.point);
+    y = sectionTitle(`${run.name} · ${run.startPoint || '—'} → ${endPoint} · ${reportRows.length} trạm`, y);
     autoTable(doc, {
       ...tableStyles,
       startY: y,
-      head: [['Trạm', 'Điểm sau', 'H sau (m)', 'BS (m)', 'FS (m)', 'Δh (mm)', 'H_tia (m)', 'Điểm trước', 'H trước (m)', 'D (m)']],
-      body: solved.rows.map((row, index) => [
-        String(index + 1),
+      head: [['Trạm', 'Loại', 'Điểm sau', 'H sau (m)', 'BS (m)', 'FS (m)', 'Δh (mm)', 'H_tia (m)', 'Điểm trước', 'H trước (m)', 'D (m)']],
+      body: reportRows.map((row) => [
+        String(row.index + 1),
+        row.pointType === POINT_TYPE_SIDE ? 'TP' : 'ĐC',
         row.fromName || '—',
         pdfElevation(row.fromElevation, locale),
         pdfElevation(row.bs, locale),
@@ -313,8 +339,18 @@ export async function createPdfDocument(book, solvedRuns, options = {}) {
   y = sectionTitle('Bình sai lưới độ cao', y);
   if (!network.available) {
     y = paragraph(network.reason, y + 2, [138, 91, 0]);
+    if (network.sidePoints?.length) {
+      y = sectionTitle('Tia phụ · không tham gia bình sai', y);
+      autoTable(doc, {
+        ...tableStyles,
+        startY: y,
+        head: [['Lượt đo', 'Điểm gốc', 'Tia phụ', 'H suy ra (m)']],
+        body: network.sidePoints.map((point) => [point.runName, point.fromName, point.name, pdfElevation(point.elevation, locale)]),
+      });
+      y = (doc.lastAutoTable?.finalY || y) + 9;
+    }
   } else {
-    y = paragraph(`${network.method}. Mốc chuẩn được giữ cố định; các điểm chưa biết được bình sai từ toàn bộ trị đo liên kết.`, y + 2);
+    y = paragraph(`${network.method}. Mốc chuẩn được giữ cố định; chỉ điểm chuyền tham gia phương trình. Tia phụ nhận cao độ suy ra từ điểm gốc sau bình sai.`, y + 2);
     if (network.degreesOfFreedom === 0) y = paragraph(OPEN_ROUTE_WARNING, y, [138, 91, 0]);
     autoTable(doc, {
       ...tableStyles,
@@ -328,6 +364,16 @@ export async function createPdfDocument(book, solvedRuns, options = {}) {
       ]),
     });
     y = (doc.lastAutoTable?.finalY || y) + 9;
+    if (network.sidePoints?.length) {
+      y = sectionTitle('Tia phụ · không tham gia bình sai', y);
+      autoTable(doc, {
+        ...tableStyles,
+        startY: y,
+        head: [['Lượt đo', 'Điểm gốc', 'Tia phụ', 'H suy ra (m)']],
+        body: network.sidePoints.map((point) => [point.runName, point.fromName, point.name, pdfElevation(point.elevation, locale)]),
+      });
+      y = (doc.lastAutoTable?.finalY || y) + 9;
+    }
     y = sectionTitle('Số hiệu chỉnh chênh cao (v)', y);
     autoTable(doc, {
       ...tableStyles,

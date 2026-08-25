@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createBook, createStation, normalizeBook, solveRun } from './model';
+import { POINT_TYPE_SIDE } from './pointNames';
 import { createExcelWorkbook } from './report';
 
 describe('báo cáo Excel kỹ thuật', () => {
@@ -32,5 +33,42 @@ describe('báo cáo Excel kỹ thuật', () => {
       'H trước (m)': 0.975,
     }));
     expect(typeof runRows[0]['H trước (m)']).toBe('number');
+  });
+
+  it('xuất tia phụ riêng và không đưa tia phụ vào sheet bình sai', async () => {
+    const initial = createBook();
+    const book = normalizeBook({
+      ...initial,
+      benchmarks: [
+        { ...initial.benchmarks[0], name: 'DG1', elevation: '10,000' },
+        { ...initial.benchmarks[1], name: 'DG2', elevation: '12,001' },
+      ],
+      runs: [{
+        ...initial.runs[0],
+        startPoint: 'DG1',
+        stations: [
+          { ...createStation('DC1'), bs: '1,500', fs: '0,500' },
+          { ...createStation('TP_DC1.1', POINT_TYPE_SIDE), bs: '1,000', fs: '0,800' },
+          { ...createStation('DG2'), bs: '1,500', fs: '0,500' },
+          createStation('', POINT_TYPE_SIDE),
+        ],
+      }],
+    });
+    const solvedRuns = book.runs.map((run) => solveRun(run, book.benchmarks));
+    const { XLSX, workbook } = await createExcelWorkbook(book, solvedRuns);
+    const runRows = XLSX.utils.sheet_to_json(workbook.Sheets['Lượt 1']);
+    const sideRows = XLSX.utils.sheet_to_json(workbook.Sheets['Tia phụ']);
+    const adjustmentRows = XLSX.utils.sheet_to_json(workbook.Sheets['Bình sai']);
+    const adjustedPoints = XLSX.utils.sheet_to_json(workbook.Sheets['Cao độ bình sai']);
+
+    expect(runRows[1]).toEqual(expect.objectContaining({ 'Loại điểm tới': 'TIA PHỤ', 'Điểm sau': 'DC1', 'Điểm trước': 'TP_DC1.1' }));
+    expect(runRows).toHaveLength(3);
+    expect(runRows.map((row) => row.Trạm)).toEqual([1, 2, 3]);
+    expect(sideRows[0]).toEqual(expect.objectContaining({ 'Tên tia phụ': 'TP_DC1.1', 'Tham gia bình sai': 'KHÔNG' }));
+    expect(sideRows).toHaveLength(1);
+    expect(adjustmentRows.map((row) => row.Trạm)).toEqual([1, 3]);
+    expect(adjustmentRows.some((row) => row['Điểm trước'] === 'TP_DC1.1')).toBe(false);
+    expect(adjustedPoints.some((row) => row['Tên điểm'] === 'TP_DC1.1')).toBe(false);
+    expect(JSON.parse(workbook.Props.Comments).runs[0].stations[1].pointType).toBe(POINT_TYPE_SIDE);
   });
 });

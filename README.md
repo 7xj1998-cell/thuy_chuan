@@ -2,6 +2,14 @@
 
 Ứng dụng ghi, tính và bình sai cao độ cho nhiều lượt đo độc lập, dùng chung mã nguồn cho web, iPhone và Android.
 
+## Phiên bản 2.4.0
+
+- Bổ sung hai loại trị đo **Điểm chuyền (ĐC)** và **Tia phụ (TP)** theo đúng quy trình hiện trường: ĐC chuyển điểm gốc, TP giữ nguyên mia sau.
+- Tự động gợi ý tên `DC1`, `DC2` và `TP_<điểm gốc>[_Lx].n`; combobox tìm kiếm toàn bộ điểm trong sổ vẫn cho phép nhập tên mới.
+- Tia phụ chỉ nhận cao độ suy ra, không tham gia phương trình, trọng số, bậc tự do hoặc số hiệu chỉnh bình sai; Excel/PDF có bảng TP riêng.
+- Chuẩn hóa cao độ mốc thông minh và làm tròn đối xứng đến milimét; bổ sung bảo vệ dữ liệu khi ứng dụng bị đưa nền trong lúc nhập.
+- Nâng cấp khả năng đọc ngoài hiện trường, vùng chạm, hỗ trợ VoiceOver và hiển thị nổi bật `H tới` trên màn hình Tuyến.
+
 ## Phiên bản 2.3.2
 
 - Sửa bố cục vuốt trái để xóa trạm: thẻ nội dung luôn giữ nguyên toàn bộ chiều rộng và chỉ dịch chuyển 80 px trên nút xóa nền.
@@ -35,7 +43,7 @@
 - Hỗ trợ tuyến thuận/ngược, so sánh cùng điểm giữa các lượt và lưu bản sao bằng ID riêng.
 - Hai chế độ đo 1 chỉ và 3 chỉ. Chế độ 3 chỉ tự tính khoảng cách mia sau/trước, chênh lệch khoảng cách và sai số chỉ giữa.
 - Tự lưu bản nháp, đổi tên sổ/lượt, vuốt trái để xóa trạm và hoàn tác trong 5 giây.
-- Dữ liệu cũ được tự động chuyển sang schema v4; trị đọc và cao độ đầu vào dùng mét, lõi tính toán tiếp tục dùng milimét.
+- Dữ liệu cũ được tự động chuyển sang schema v5; trị đọc và cao độ đầu vào dùng mét, lõi tính toán tiếp tục dùng milimét.
 
 ## Chạy và kiểm thử
 
@@ -60,12 +68,12 @@ Dữ liệu sổ lưu cục bộ trên thiết bị. Excel dùng để sao lưu/
 
 Tên mốc và tên điểm được tự động chuẩn hóa thành chữ in hoa trên web, Android và iOS, kể cả dữ liệu mở từ sổ cũ hoặc nhập từ Excel.
 
-File Excel gồm các sheet **Thông tin**, **Mốc chuẩn**, **Tất cả điểm**, **So sánh**, **Bình sai**, **Cao độ bình sai** và một sheet chi tiết cho mỗi lượt đo. Ô số vẫn ở dạng số; cao độ/số đọc dùng mét, Δh/sai số khép/số hiệu chỉnh dùng milimét. Sheet **Tất cả điểm** luôn liệt kê cả các điểm trung gian theo đúng thứ tự đo. Mỗi lần nhập Excel sẽ tạo một sổ mới để không ghi đè dữ liệu hiện có.
+File Excel gồm các sheet **Thông tin**, **Mốc chuẩn**, **Tất cả điểm**, **So sánh**, **Bình sai**, **Cao độ bình sai**, sheet **Tia phụ** khi có và một sheet chi tiết cho mỗi lượt đo. Ô số vẫn ở dạng số; cao độ/số đọc dùng mét, Δh/sai số khép/số hiệu chỉnh dùng milimét. Sheet **Tất cả điểm** luôn liệt kê cả các điểm trung gian theo đúng thứ tự đo. Mỗi lần nhập Excel sẽ tạo một sổ mới để không ghi đè dữ liệu hiện có.
 
 ## Bình sai cao độ
 
 - Bình sai được thực hiện chung cho toàn bộ các lượt trong sổ bằng mô hình bình sai gián tiếp. Các lượt được liên kết qua tên điểm trùng nhau, nên tuyến đi–về chỉ cần dùng cùng tên DC để nhận một cao độ DC sau bình sai.
-- Mốc có cao độ chuẩn được giữ cố định; mọi điểm chưa biết như DC, TP/TV đều tham gia hệ phương trình và xuất hiện trong bảng **Cao độ bình sai**.
+- Mốc có cao độ chuẩn được giữ cố định; điểm chuyền tham gia hệ phương trình và xuất hiện trong bảng **Cao độ bình sai**. Tia phụ giữ nguyên điểm gốc, chỉ nhận cao độ suy ra và không tham gia phương trình bình sai.
 - Nếu tất cả đoạn có khoảng cách, trọng số lấy nghịch đảo chiều dài; nếu thiếu khoảng cách, toàn mạng dùng đồng trọng số để tránh trộn hai mô hình trọng số.
 - Bậc tự do bằng 0 được cảnh báo là mạng chưa có trị đo thừa: cao độ tính được nhưng chưa đủ điều kiện đánh giá độ tin cậy.
 - Nhập khoảng cách từng đoạn theo mét để phân phối sai số khép theo chiều dài.

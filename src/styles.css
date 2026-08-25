@@ -894,23 +894,74 @@ section {
 
 .pointbox {
   margin-top: 12px;
-  padding: 13px 15px;
+  padding: 14px 15px;
   border-radius: 19px;
 }
 
-.pointbox label {
+.point-type-row,
+.point-entry {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 14px;
   align-items: center;
 }
 
-.pointbox label > span {
+.point-type-row > span,
+.point-entry > span {
   color: var(--ink-soft);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
+}
+
+.point-type-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #d8e0dd;
+  border-radius: 14px;
+  background: #edf2f0;
+}
+
+.point-type-toggle button {
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 11px;
+  box-shadow: none;
+}
+
+.point-type-toggle button small {
+  display: inline-grid;
+  min-width: 25px;
+  height: 23px;
+  margin-left: 2px;
+  place-items: center;
+  border-radius: 8px;
+  background: rgba(100, 116, 139, 0.1);
+  font-family: var(--font-data);
+  font-size: 9px;
+}
+
+.point-type-toggle button.active {
+  background: #fff;
+  color: var(--brand-dark);
+  box-shadow: 0 1px 5px rgba(15, 23, 42, 0.14);
+}
+
+.point-type-toggle button:last-child.active {
+  color: #075985;
+}
+
+.point-entry {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
 }
 
 .pointbox input {
@@ -922,6 +973,106 @@ section {
   letter-spacing: 0.02em;
   text-align: center;
   text-transform: uppercase;
+}
+
+.pointbox-side {
+  border-color: #bae6fd;
+  background: linear-gradient(155deg, #ffffff, #f0f9ff);
+}
+
+.point-guidance {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 9px;
+  color: var(--muted);
+}
+
+.point-guidance b {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  color: var(--brand-dark);
+  font-size: 9px;
+}
+
+.pointbox-side .point-guidance b {
+  background: #e0f2fe;
+  color: #075985;
+}
+
+.point-guidance small {
+  color: var(--ink-soft);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.point-combobox {
+  position: relative;
+  min-width: 0;
+}
+
+.point-combobox.open {
+  z-index: 34;
+}
+
+.point-options {
+  position: absolute;
+  z-index: 35;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  overflow: hidden auto;
+  max-height: min(240px, 35dvh);
+  padding: 5px;
+  border: 1px solid #cbd8d3;
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.17);
+  overscroll-behavior: contain;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.point-options button {
+  width: 100%;
+  min-height: 48px;
+  justify-content: space-between;
+  padding: 9px 11px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+}
+
+.point-options button + button {
+  margin-top: 2px;
+}
+
+.point-options button.active {
+  background: var(--brand-wash);
+  color: var(--brand-dark);
+}
+
+.point-options button[data-create="true"] {
+  border: 1px dashed #b8d8cf;
+  background: #fbfefd;
+}
+
+.point-options button span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.point-options button b {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .live,
@@ -1163,10 +1314,15 @@ section {
 }
 
 .twofields label,
+.twofields .field-label,
 .tolerance-card label {
   color: var(--ink-soft);
   font-size: 10px;
   font-weight: 650;
+}
+
+.twofields .field-label > span {
+  display: block;
 }
 
 .twofields input,
@@ -1331,6 +1487,27 @@ section {
   color: var(--brand);
 }
 
+.route-kind {
+  display: inline-grid;
+  min-width: 27px;
+  height: 22px;
+  margin-right: 7px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--brand-soft);
+  color: var(--brand-dark);
+  font-family: var(--font-data);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 700;
+  vertical-align: 1px;
+}
+
+.route-kind-side {
+  background: #e0f2fe;
+  color: #075985;
+}
+
 .route-body > small {
   margin-top: 4px;
   color: var(--muted);
@@ -1345,6 +1522,33 @@ section {
   gap: 9px;
   overflow: visible;
   white-space: normal;
+}
+
+.route-body > .route-elevation {
+  display: flex;
+  overflow: visible;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 5px 12px;
+  margin-top: 6px;
+  color: var(--ink-soft);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 650;
+  white-space: normal;
+}
+
+.route-elevation strong {
+  color: #020617;
+  font-size: 15px;
+  font-weight: 750;
+  letter-spacing: -0.025em;
+}
+
+.route-distance {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 600;
 }
 
 .route-chevron {
@@ -1568,6 +1772,19 @@ section {
   margin-top: 12px;
 }
 
+.side-point-section {
+  margin-top: 15px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.side-point-section h4 {
+  margin: 0 0 8px;
+  color: #075985;
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .network-adjustment summary {
   display: flex;
   min-height: 48px;
@@ -1683,6 +1900,16 @@ section {
 
 .benchrow > label {
   position: relative;
+}
+
+.benchrow > .point-combobox {
+  min-width: 0;
+}
+
+.benchmark-point-combobox .point-options {
+  width: min(280px, calc(100vw - 48px));
+  min-width: 100%;
+  right: auto;
 }
 
 .benchrow > label input {
@@ -2193,9 +2420,42 @@ section {
     border-left: 0;
   }
 
-  .pointbox label {
+  .point-type-row,
+  .point-entry {
     grid-template-columns: 1fr;
     gap: 7px;
+  }
+
+  .point-type-toggle {
+    width: 100%;
+  }
+
+  .point-guidance {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .bench-labels {
+    display: none;
+  }
+
+  .benchrow {
+    grid-template-columns: minmax(0, 1fr) 48px;
+    gap: 7px 8px;
+    padding-top: 9px;
+    border-top: 1px solid var(--line);
+  }
+
+  .benchrow > .point-combobox,
+  .benchrow > label {
+    grid-column: 1;
+  }
+
+  .benchrow > .icon-danger {
+    grid-row: 1 / span 2;
+    grid-column: 2;
+    height: 100%;
   }
 
   .check,

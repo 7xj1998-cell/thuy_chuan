@@ -29,6 +29,16 @@ describe('cấu trúc giao diện mobile', () => {
     expect(html).not.toContain('Cao máy · HI');
   });
 
+  it('hiển thị toggle ĐC/TP, combobox và ghost name tự động trên màn hình Đo', () => {
+    const html = renderToStaticMarkup(<App />);
+    expect(html).toContain('Chọn loại điểm tới');
+    expect(html).toContain('Điểm chuyền');
+    expect(html).toContain('Tia phụ');
+    expect(html).toContain('role="combobox"');
+    expect(html).toContain('aria-autocomplete="list"');
+    expect(html).toContain('placeholder="DC1"');
+  });
+
   it('hiển thị dữ liệu cũ 2000.000 thành số đọc 2,000 m', () => {
     localStorage.setItem('so-thuy-chuan.active-draft.v2', JSON.stringify({
       schemaVersion: 3,

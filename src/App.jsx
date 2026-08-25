@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   BarChart2,
   BookOpen,
@@ -28,7 +28,9 @@ import {
   createBook,
   createRun,
   createStation,
+  finalizeStation,
   migrateLegacyBook,
+  nextRunNumber,
   normalizeBook,
   removeStation,
   restoreStation,
@@ -37,9 +39,20 @@ import {
   STORAGE_KEYS,
 } from './model';
 import { uid, uppercaseName } from './calc';
+import {
+  collectPointNames,
+  filterPointNames,
+  normalizePointType,
+  POINT_TYPE_SIDE,
+  POINT_TYPE_TURNING,
+  pointTypeLabel,
+  remapGeneratedSidePointNames,
+  suggestTargetPointName,
+} from './pointNames';
 import { exportExcelReport, exportPdfReport } from './report';
 import { OPEN_ROUTE_WARNING } from './terminology';
 import {
+  canonicalBenchmarkElevationDraft,
   formatElevation,
   formatMeters,
   formatMillimeters,
@@ -47,6 +60,7 @@ import {
   formatStaffReading,
   normalizeMeterInput,
   normalizeStaffInput,
+  sanitizeBenchmarkElevationInput,
   sanitizeMeterInput,
 } from './units';
 
@@ -59,8 +73,8 @@ const NAV_ITEMS = [
 
 const SWIPE_REVEAL_PX = 80;
 
-function MeterInput({ value, onValueChange, staffReading = false, className = '', placeholder = '0,000', ...props }) {
-  const normalize = staffReading ? normalizeStaffInput : normalizeMeterInput;
+function MeterInput({ value, onValueChange, staffReading = false, sanitizer = sanitizeMeterInput, normalizer, className = '', placeholder = '0,000', onKeyDown, ...props }) {
+  const normalize = normalizer || (staffReading ? normalizeStaffInput : normalizeMeterInput);
   return (
     <input
       {...props}
@@ -68,9 +82,203 @@ function MeterInput({ value, onValueChange, staffReading = false, className = ''
       inputMode="decimal"
       placeholder={placeholder}
       value={value}
-      onChange={(event) => onValueChange(sanitizeMeterInput(event.target.value))}
-      onBlur={() => onValueChange(normalize(value))}
+      onChange={(event) => onValueChange(sanitizer(event.target.value))}
+      onBlur={(event) => onValueChange(normalize(event.currentTarget.value))}
+      onKeyDown={(event) => {
+        onKeyDown?.(event);
+        if (!event.defaultPrevented && event.key === 'Enter') event.currentTarget.blur();
+      }}
     />
+  );
+}
+
+function BenchmarkElevationInput({ value, onValueChange, ariaLabel }) {
+  const [draft, setDraft] = useState(value || '');
+  const focusedRef = useRef(false);
+  const canonicalRef = useRef(value || '');
+
+  useEffect(() => {
+    canonicalRef.current = value || '';
+    if (!focusedRef.current) setDraft(value || '');
+  }, [value]);
+
+  const updateDraft = (nextValue) => {
+    const next = sanitizeBenchmarkElevationInput(nextValue);
+    setDraft(next);
+    const canonical = canonicalBenchmarkElevationDraft(next);
+    if (canonical !== null) onValueChange(canonical);
+  };
+
+  const finishEditing = () => {
+    focusedRef.current = false;
+    const canonical = canonicalBenchmarkElevationDraft(draft);
+    if (canonical === null) {
+      setDraft(canonicalRef.current);
+      return;
+    }
+    setDraft(canonical);
+    onValueChange(canonical);
+  };
+
+  return (
+    <input
+      className="numeric meter-input"
+      aria-label={ariaLabel}
+      inputMode="decimal"
+      enterKeyHint="done"
+      placeholder="0,000"
+      value={draft}
+      onFocus={() => { focusedRef.current = true; }}
+      onChange={(event) => updateDraft(event.target.value)}
+      onBlur={finishEditing}
+      onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+    />
+  );
+}
+
+function PointCombobox({ value, onValueChange, options = [], placeholder = '', ariaLabel, className = '' }) {
+  const [draft, setDraft] = useState(value || '');
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const rootRef = useRef(null);
+  const optionRefs = useRef([]);
+  const optionSnapshotRef = useRef(options);
+  const optionInteractingRef = useRef(false);
+  const blurTimerRef = useRef(null);
+  const listId = useId().replace(/:/g, '');
+  const helpId = `${listId}-help`;
+
+  useEffect(() => setDraft(value || ''), [value]);
+
+  const query = uppercaseName(draft).trim();
+  const searchOptions = open ? optionSnapshotRef.current : options;
+  const matches = useMemo(() => filterPointNames(searchOptions, query), [searchOptions, query]);
+  const exactMatch = searchOptions.some((name) => uppercaseName(name).trim() === query);
+  const items = useMemo(() => [
+    ...matches.map((name) => ({ name, create: false })),
+    ...(query && !exactMatch ? [{ name: query, create: true }] : []),
+  ], [exactMatch, matches, query]);
+  const popupOpen = open && items.length > 0;
+
+  useEffect(() => setActiveIndex(-1), [query]);
+  useEffect(() => {
+    if (popupOpen && activeIndex >= 0) optionRefs.current[activeIndex]?.scrollIntoView?.({ block: 'nearest' });
+  }, [activeIndex, popupOpen]);
+  useEffect(() => () => { if (blurTimerRef.current) globalThis.clearTimeout(blurTimerRef.current); }, []);
+
+  const clearBlurTimer = () => {
+    if (!blurTimerRef.current) return;
+    globalThis.clearTimeout(blurTimerRef.current);
+    blurTimerRef.current = null;
+  };
+
+  const commit = (nextValue = draft) => {
+    clearBlurTimer();
+    const next = uppercaseName(nextValue).trim();
+    setDraft(next);
+    if (next !== uppercaseName(value).trim()) onValueChange(next);
+    setOpen(false);
+    setActiveIndex(-1);
+  };
+
+  const handleKeyDown = (event) => {
+    if (event.nativeEvent?.isComposing) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setOpen(true);
+      setActiveIndex((current) => items.length ? (current + 1) % items.length : -1);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setOpen(true);
+      setActiveIndex((current) => items.length ? (current < 0 ? items.length - 1 : (current - 1 + items.length) % items.length) : -1);
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      optionInteractingRef.current = true;
+      commit(!query && placeholder ? placeholder : open && items[activeIndex] ? items[activeIndex].name : draft);
+      event.currentTarget.blur();
+      optionInteractingRef.current = false;
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      setDraft(value || '');
+      optionSnapshotRef.current = options;
+      setOpen(false);
+    }
+  };
+
+  return (
+    <div
+      ref={rootRef}
+      className={`point-combobox ${open ? 'open' : ''} ${className}`.trim()}
+      onBlurCapture={(event) => {
+        if (rootRef.current?.contains(event.relatedTarget) || optionInteractingRef.current) return;
+        clearBlurTimer();
+        blurTimerRef.current = globalThis.setTimeout(() => {
+          blurTimerRef.current = null;
+          if (!rootRef.current?.contains(document.activeElement)) commit(draft);
+        }, 0);
+      }}
+    >
+      <input
+        aria-label={ariaLabel}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-haspopup="listbox"
+        aria-expanded={popupOpen}
+        aria-controls={popupOpen ? listId : undefined}
+        aria-activedescendant={popupOpen && activeIndex >= 0 && items[activeIndex] ? `${listId}-${activeIndex}` : undefined}
+        aria-describedby={placeholder ? helpId : undefined}
+        autoComplete="off"
+        autoCapitalize="characters"
+        enterKeyHint="done"
+        spellCheck={false}
+        placeholder={placeholder}
+        value={draft}
+        onFocus={() => { optionSnapshotRef.current = options; setOpen(true); }}
+        onChange={(event) => {
+          const next = uppercaseName(event.target.value).trimStart();
+          if (!open) optionSnapshotRef.current = options;
+          setDraft(next);
+          onValueChange(next);
+          setOpen(true);
+        }}
+        onKeyDown={handleKeyDown}
+      />
+      {placeholder && <span id={helpId} className="sr-only">Để trống rồi hoàn tất để dùng tên tự động {placeholder}.</span>}
+      {popupOpen && (
+        <div className="point-options" id={listId} role="listbox" aria-label={`Gợi ý cho ${ariaLabel}`}>
+          {items.map((item, index) => (
+            <button
+              ref={(element) => { optionRefs.current[index] = element; }}
+              type="button"
+              id={`${listId}-${index}`}
+              key={`${item.create ? 'create' : 'point'}-${item.name}`}
+              className={index === activeIndex ? 'active' : ''}
+              data-create={item.create}
+              role="option"
+              tabIndex={-1}
+              aria-selected={index === activeIndex}
+              onPointerDown={() => {
+                clearBlurTimer();
+                optionInteractingRef.current = true;
+              }}
+              onPointerUp={() => globalThis.setTimeout(() => {
+                optionInteractingRef.current = false;
+                if (!rootRef.current?.contains(document.activeElement)) setOpen(false);
+              }, 0)}
+              onPointerCancel={() => {
+                optionInteractingRef.current = false;
+                if (!rootRef.current?.contains(document.activeElement)) setOpen(false);
+              }}
+              onMouseEnter={() => setActiveIndex(index)}
+              onClick={() => { optionInteractingRef.current = false; commit(item.name); }}
+            >
+              <span>{item.create ? 'Dùng tên mới' : 'Điểm đã có'}</span>
+              <b className="numeric">{item.name}</b>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -107,6 +315,7 @@ export default function App() {
   const activeRun = book.runs[activeRunIndex];
   const solvedRuns = useMemo(() => book.runs.map((run) => solveRun(run, book.benchmarks)), [book]);
   const activeSolved = solvedRuns[activeRunIndex];
+  const pointOptions = useMemo(() => collectPointNames(book), [book]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -136,11 +345,17 @@ export default function App() {
   };
 
   const updateStation = (run, stationId, field, value) => {
-    updateRun(run.id, {
-      stations: run.stations.map((station) => station.id === stationId
-        ? { ...station, [field]: field === 'point' ? uppercaseName(value).trimStart() : value }
-        : station),
-    });
+    updateBook((previous) => ({
+      ...previous,
+      runs: previous.runs.map((currentRun) => currentRun.id === run.id
+        ? {
+          ...currentRun,
+          stations: currentRun.stations.map((station) => station.id === stationId
+            ? { ...station, [field]: field === 'point' ? uppercaseName(value).trimStart() : value }
+            : station),
+        }
+        : currentRun),
+    }));
   };
 
   function selectRun(id) {
@@ -150,7 +365,7 @@ export default function App() {
   }
 
   function addRun() {
-    const next = createRun(book.runs.length + 1, book.benchmarks[0]?.name || '');
+    const next = createRun(nextRunNumber(book.runs), book.benchmarks[0]?.name || '');
     updateBook((previous) => ({ ...previous, runs: [...previous.runs, next] }));
     selectRun(next.id);
   }
@@ -164,13 +379,16 @@ export default function App() {
 
   function finishStation() {
     const station = activeRun.stations[stationIndex];
-    if (!station.point.trim()) {
+    const pointType = normalizePointType(station.pointType);
+    const autoName = suggestTargetPointName(book, activeRun.id, stationIndex, pointType);
+    const result = finalizeStation(activeRun, stationIndex, autoName);
+    if (!result.committed) {
       alert('Nhập tên điểm tới trước khi hoàn tất trạm.');
       return;
     }
-    if (stationIndex < activeRun.stations.length - 1) setStationIndex(stationIndex + 1);
-    else addStation();
-    setToast({ text: 'Đã lưu trạm' });
+    updateRun(activeRun.id, { stations: result.stations });
+    setStationIndex(result.nextIndex);
+    setToast({ text: pointType === POINT_TYPE_SIDE ? 'Đã lưu tia phụ' : 'Đã lưu điểm chuyền' });
   }
 
   function deleteStation(index) {
@@ -231,11 +449,14 @@ export default function App() {
   }
 
   function duplicateRun() {
+    const id = uid();
+    const roundNumber = nextRunNumber(book.runs);
     const copy = {
       ...structuredClone(activeRun),
-      id: uid(),
+      id,
+      roundNumber,
       name: `${activeRun.name} - bản sao`,
-      stations: activeRun.stations.map((station) => ({ ...station, id: uid() })),
+      stations: remapGeneratedSidePointNames(book, activeRun, id, roundNumber).map((station) => ({ ...station, id: uid() })),
     };
     updateBook((previous) => ({ ...previous, runs: [...previous.runs, copy] }));
     selectRun(copy.id);
@@ -310,9 +531,9 @@ export default function App() {
       </header>
 
       <main id="main-content" data-tab={tab}>
-        {tab !== 'files' && <RunPicker runs={book.runs} runId={activeRun.id} onSelect={selectRun} onAdd={addRun} />}
+        {tab !== 'files' && <RunPicker runs={book.runs} solvedRuns={solvedRuns} runId={activeRun.id} onSelect={selectRun} onAdd={addRun} />}
         {tab === 'measure' && (
-          <Measure run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} updateStation={updateStation} updateRun={updateRun} finish={finishStation} />
+          <Measure book={book} pointOptions={pointOptions} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} updateStation={updateStation} updateRun={updateRun} finish={finishStation} />
         )}
         {tab === 'route' && (
           <Route
@@ -326,6 +547,7 @@ export default function App() {
             remove={deleteStation}
             duplicate={duplicateRun}
             deleteRun={deleteRun}
+            pointOptions={pointOptions}
           />
         )}
         {tab === 'result' && <Results book={book} solvedRuns={solvedRuns} updateBook={updateBook} />}
@@ -350,6 +572,7 @@ export default function App() {
             exporting={exporting}
             fileRef={fileRef}
             importExcel={importExcel}
+            pointOptions={pointOptions}
           />
         )}
       </main>
@@ -373,9 +596,10 @@ export default function App() {
   );
 }
 
-function RunPicker({ runs, runId, onSelect, onAdd }) {
+function RunPicker({ runs, solvedRuns, runId, onSelect, onAdd }) {
   const selectedRun = runs.find((run) => run.id === runId) || runs[0];
-  const endPoint = [...selectedRun.stations].reverse().find((station) => station.point.trim())?.point || '—';
+  const selectedSolved = solvedRuns.find((solved) => solved.runId === selectedRun.id);
+  const endPoint = selectedSolved?.endPoint || selectedRun.startPoint || '—';
   return (
     <div className="runbar">
       <label className="runselect">
@@ -393,11 +617,14 @@ function RunPicker({ runs, runId, onSelect, onAdd }) {
   );
 }
 
-function Measure({ run, solved, index, setIndex, updateStation, updateRun, finish }) {
+function Measure({ book, pointOptions, run, solved, index, setIndex, updateStation, updateRun, finish }) {
   const station = run.stations[index];
   const row = solved.rows[index];
   if (!station) return null;
   const progress = Math.round(((index + 1) / run.stations.length) * 100);
+  const pointType = normalizePointType(station.pointType);
+  const autoName = suggestTargetPointName(book, run.id, index, pointType);
+  const displayPoint = station.point || autoName;
 
   return (
     <section className="measure-shell">
@@ -451,12 +678,33 @@ function Measure({ run, solved, index, setIndex, updateStation, updateRun, finis
         </div>
       )}
 
-      <div className="pointbox">
-        <label><span>Điểm tới</span><input aria-label="Điểm tới" autoCapitalize="characters" enterKeyHint="done" placeholder="VD: TP1" value={station.point} onChange={(event) => updateStation(run, station.id, 'point', event.target.value)} /></label>
+      <div className={`pointbox pointbox-${pointType}`}>
+        <div className="point-type-row">
+          <span>Loại điểm tới</span>
+          <div className="point-type-toggle" role="group" aria-label="Chọn loại điểm tới">
+            <button type="button" className={pointType === POINT_TYPE_TURNING ? 'active' : ''} aria-pressed={pointType === POINT_TYPE_TURNING} onClick={() => updateStation(run, station.id, 'pointType', POINT_TYPE_TURNING)}>Điểm chuyền <small>ĐC</small></button>
+            <button type="button" className={pointType === POINT_TYPE_SIDE ? 'active' : ''} aria-pressed={pointType === POINT_TYPE_SIDE} onClick={() => updateStation(run, station.id, 'pointType', POINT_TYPE_SIDE)}>Tia phụ <small>TP</small></button>
+          </div>
+        </div>
+        <div className="point-entry">
+          <span>Điểm tới</span>
+          <PointCombobox
+            key={station.id}
+            ariaLabel="Điểm tới"
+            options={pointOptions}
+            placeholder={autoName}
+            value={station.point}
+            onValueChange={(value) => updateStation(run, station.id, 'point', value)}
+          />
+        </div>
+        <div className="point-guidance">
+          <b>{pointTypeLabel(pointType)}</b>
+          <small>{pointType === POINT_TYPE_SIDE ? `Giữ nguyên mia sau tại ${row?.fromName || run.startPoint || 'điểm gốc'} · không tham gia bình sai` : `Sau khi lưu, ${displayPoint || 'điểm tới'} trở thành điểm đặt mia sau`}</small>
+        </div>
       </div>
       <div className="live" aria-label="Kết quả tính tức thời" aria-live="polite">
         <div><span>Chênh cao · Δh</span><b className="numeric">{formatSignedMillimeters(row?.delta)} mm</b></div>
-        <div><span>Cao độ · H({station.point || '?'})</span><b className="numeric">{formatElevation(row?.elevation)} m</b></div>
+        <div><span>Cao độ · H({displayPoint || '?'})</span><b className="numeric">{formatElevation(row?.elevation)} m</b></div>
         <div><span>{run.mode === 'single' ? <>Cao độ tia ngắm (H<sub>tia</sub>)</> : 'Cự ly trạm'}</span><b className="numeric">{run.mode === 'single' ? `${formatElevation(row?.hi)} m` : `${formatMeters(row?.distance)} m`}</b></div>
       </div>
       <div className="field-actions">
@@ -485,20 +733,20 @@ function Staff({ title, prefix, station, row, update }) {
   );
 }
 
-function Route({ run, solved, settingsOpen, setSettingsOpen, updateRun, addStation, edit, remove, duplicate, deleteRun }) {
+function Route({ run, solved, settingsOpen, setSettingsOpen, updateRun, addStation, edit, remove, duplicate, deleteRun, pointOptions }) {
   return (
     <section className="route-shell">
       <div className="card runsummary">
         <div className="runsummary-top">
           <div className="runsummary-badge" aria-hidden="true"><RouteIcon /></div>
-          <div className="runsummary-main"><small>Tuyến đang chọn</small><h2>{run.name}</h2><p><b>{run.startPoint || '—'}</b><span aria-hidden="true">→</span><b>{solved.points.at(-1)?.name || '—'}</b><span>· {run.stations.length} trạm</span></p></div>
+          <div className="runsummary-main"><small>Tuyến đang chọn</small><h2>{run.name}</h2><p><b>{run.startPoint || '—'}</b><span aria-hidden="true">→</span><b>{solved.endPoint || run.startPoint || '—'}</b><span>· {solved.turningCount} ĐC · {solved.sideCount} TP</span></p></div>
           <button className="settings-btn" aria-label="Cài đặt lượt đo" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(!settingsOpen)}><Settings2 /></button>
         </div>
         {settingsOpen && (
           <div className="runsettings open">
             <div className="twofields">
               <label>Tên lượt<input value={run.name} onChange={(event) => updateRun(run.id, { name: event.target.value })} /></label>
-              <label>Điểm đầu<input value={run.startPoint} onChange={(event) => updateRun(run.id, { startPoint: uppercaseName(event.target.value) })} /></label>
+              <div className="field-label"><span>Điểm đầu</span><PointCombobox ariaLabel="Điểm đầu lượt đo" options={pointOptions} value={run.startPoint} onValueChange={(value) => updateRun(run.id, { startPoint: value })} /></div>
             </div>
             <div className="runactions"><button onClick={duplicate}><Copy />Nhân bản</button><button className="danger" onClick={deleteRun}><Trash2 />Xóa lượt</button></div>
           </div>
@@ -572,9 +820,9 @@ function SwipeStation({ row, index, edit, remove }) {
       >
         <span className="route-num numeric">{index + 1}</span>
         <span className="route-body">
-          <b>{row.fromName || '—'} <span aria-hidden="true">→</span> {row.point || '—'}</b>
+          <b><em className={`route-kind route-kind-${row.pointType}`}>{row.pointType === POINT_TYPE_SIDE ? 'TP' : 'ĐC'}</em>{row.fromName || '—'} <span aria-hidden="true">→</span> {row.point || '—'}</b>
           <small className="numeric"><span>BS {formatStaffReading(row.bs)} m</span><span>FS {formatStaffReading(row.fs)} m</span><span>Δh {formatSignedMillimeters(row.delta)} mm</span></small>
-          <small className="numeric">H tới {formatElevation(row.elevation)} m{row.distance !== null ? ` · D ${formatMeters(row.distance)} m` : ''}</small>
+          <small className="route-elevation"><span>H tới: <strong className="numeric">{formatElevation(row.elevation)} m</strong></span>{row.distance !== null && <span className="route-distance numeric">D {formatMeters(row.distance)} m</span>}</small>
         </span>
         <span className="route-chevron" aria-hidden="true"><ChevronRight /></span>
       </button>
@@ -598,7 +846,7 @@ function Results({ book, solvedRuns, updateBook }) {
         <div className="card result-card" key={solved.runId}>
           <div className="card-heading"><span>Lượt đo</span><h3>{solved.runName}</h3></div>
           <div className="metric">
-            <div><span>Số trạm</span><b className="numeric">{solved.rows.length}</b></div>
+            <div><span>ĐC / TP</span><b className="numeric">{solved.turningCount} / {solved.sideCount}</b></div>
             <div><span>Chiều dài</span><b className="numeric">{solved.totalDistance === null ? '—' : `${formatMeters(solved.totalDistance)} m`}</b></div>
             <div><span>ΣΔD</span><b className="numeric">{formatMeters(solved.sumDistanceDifference)} m</b></div>
           </div>
@@ -608,17 +856,17 @@ function Results({ book, solvedRuns, updateBook }) {
         </div>
       ))}
       <div className="card">
-        <div className="card-heading"><span>Đối chiếu</span><h3>So sánh DG/DC giữa các lượt</h3></div>
+        <div className="card-heading"><span>Đối chiếu</span><h3>So sánh điểm chuyền giữa các lượt</h3></div>
         {comparisons.length ? comparisons.map((group) => (
           <div className="compare" key={group.name}>
             <div className="compareHead"><b>{group.name}</b><span className="numeric">Max - Min: {formatMillimeters(group.spread)} mm</span></div>
             {group.values.map((value) => <div className="compareLine" key={value.runId}><span>{value.runName}</span><b className="numeric">{formatElevation(value.elevation)} m</b></div>)}
           </div>
-        )) : <p className="empty">Chưa có DG/DC cùng tên ở ít nhất 2 lượt.</p>}
+        )) : <p className="empty">Chưa có điểm chuyền cùng tên ở ít nhất 2 lượt.</p>}
       </div>
       <div className="card tolerance-card">
         <label>Hệ số C <span>mm/√km</span><input className="numeric" inputMode="decimal" value={coefficient} onChange={(event) => updateBook((previous) => ({ ...previous, settings: { ...previous.settings, toleranceCoefficient: event.target.value } }))} /></label>
-        <p className="note">C là tham số kiểm tra sai số khép; bình sai lưới dùng toàn bộ trị đo liên kết.</p>
+        <p className="note">C là tham số kiểm tra sai số khép; bình sai lưới chỉ dùng các trị đo điểm chuyền liên kết.</p>
       </div>
     </section>
   );
@@ -629,10 +877,13 @@ function NetworkAdjustment({ network }) {
     <div className="card network-adjustment">
       <h3>Bình sai lưới độ cao</h3>
       {!network.available ? (
-        <div className="warning warning-card" role="status"><span className="warning-icon" aria-hidden="true"><TriangleAlert /></span><span>{network.reason}</span></div>
+        <>
+          <div className="warning warning-card" role="status"><span className="warning-icon" aria-hidden="true"><TriangleAlert /></span><span>{network.reason}</span></div>
+          <SidePointTable points={network.sidePoints} />
+        </>
       ) : (
         <>
-          <p className="note">{network.method}. Mốc chuẩn được giữ cố định; DC, TP và các điểm chưa biết đều được bình sai.</p>
+          <p className="note">{network.method}. Mốc chuẩn được giữ cố định; chỉ điểm chuyền tham gia phương trình. Tia phụ nhận cao độ suy ra từ điểm gốc sau bình sai.</p>
           <div className="metric"><div><span>Trị đo</span><b className="numeric">{network.observations}</b></div><div><span>Điểm cần tìm</span><b className="numeric">{network.unknowns}</b></div><div><span>Bậc tự do</span><b className="numeric">{network.degreesOfFreedom}</b></div></div>
           {network.degreesOfFreedom === 0 && <p className="warning">{OPEN_ROUTE_WARNING}</p>}
           {network.degreesOfFreedom > 0 && <div className="check"><b>Độ chính xác sau bình sai</b><span className="numeric">σ₀ = {formatMillimeters(network.sigma0)} {network.totalDistance === null ? 'mm' : 'mm/√km'} · |v|max = {formatMillimeters(network.maxCorrection)} mm</span></div>}
@@ -640,6 +891,7 @@ function NetworkAdjustment({ network }) {
             <div className="network-point-row heading"><b>Điểm</b><b>Vai trò</b><b>H bình sai</b></div>
             {network.points.map((point) => <div className="network-point-row" key={point.name}><b>{point.name}</b><span>{point.fixed ? 'Mốc cố định' : 'Điểm bình sai'}</span><b className="numeric">{formatElevation(point.elevation)} m</b></div>)}
           </div>
+          <SidePointTable points={network.sidePoints} />
           <details>
             <summary>Số hiệu chỉnh chênh cao (v) · {network.segments.length} đoạn</summary>
             <div className="network-table">
@@ -654,7 +906,20 @@ function NetworkAdjustment({ network }) {
   );
 }
 
-function Files({ book, books, updateBook, setBook, setBooks, newBook, save, saveAs, rename, exportExcel, exportPdf, exporting, fileRef, importExcel }) {
+function SidePointTable({ points = [] }) {
+  if (!points.length) return null;
+  return (
+    <div className="side-point-section">
+      <h4>Tia phụ · không tham gia bình sai</h4>
+      <div className="network-table">
+        <div className="network-point-row heading"><b>Điểm</b><b>Điểm gốc</b><b>H suy ra</b></div>
+        {points.map((point) => <div className="network-point-row" key={point.id}><b>{point.name}</b><span>{point.fromName}</span><b className="numeric">{formatElevation(point.elevation)} m</b></div>)}
+      </div>
+    </div>
+  );
+}
+
+function Files({ book, books, updateBook, setBook, setBooks, newBook, save, saveAs, rename, exportExcel, exportPdf, exporting, fileRef, importExcel, pointOptions }) {
   const persist = (next) => { setBooks(next); localStorage.setItem(STORAGE_KEYS.books, JSON.stringify(next)); };
   const fileActions = [
     { label: 'Sổ mới', hint: 'Tạo bản đo trống', Icon: FilePlus2, onClick: newBook },
@@ -680,8 +945,8 @@ function Files({ book, books, updateBook, setBook, setBooks, newBook, save, save
         <div className="bench-labels" aria-hidden="true"><span>Tên mốc</span><span>Cao độ H (m)</span></div>
         {book.benchmarks.map((benchmark) => (
           <div className="benchrow" key={benchmark.id}>
-            <input aria-label="Tên mốc" value={benchmark.name} onChange={(event) => updateBook((previous) => ({ ...previous, benchmarks: previous.benchmarks.map((item) => item.id === benchmark.id ? { ...item, name: uppercaseName(event.target.value) } : item) }))} />
-            <label><MeterInput aria-label={`Cao độ mốc ${benchmark.name || ''} theo mét`} value={benchmark.elevation} onValueChange={(value) => updateBook((previous) => ({ ...previous, benchmarks: previous.benchmarks.map((item) => item.id === benchmark.id ? { ...item, elevation: value } : item) }))} /><span>m</span></label>
+            <PointCombobox ariaLabel="Tên mốc" className="benchmark-point-combobox" options={pointOptions} value={benchmark.name} onValueChange={(value) => updateBook((previous) => ({ ...previous, benchmarks: previous.benchmarks.map((item) => item.id === benchmark.id ? { ...item, name: value } : item) }))} />
+            <label><BenchmarkElevationInput ariaLabel={`Cao độ mốc ${benchmark.name || ''} theo mét`} value={benchmark.elevation} onValueChange={(value) => updateBook((previous) => ({ ...previous, benchmarks: previous.benchmarks.map((item) => item.id === benchmark.id ? { ...item, elevation: value } : item) }))} /><span>m</span></label>
             <button className="danger icon-danger" aria-label={`Xóa mốc ${benchmark.name}`} onClick={() => updateBook((previous) => ({ ...previous, benchmarks: previous.benchmarks.filter((item) => item.id !== benchmark.id) }))}><Trash2 /></button>
           </div>
         ))}

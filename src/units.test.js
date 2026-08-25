@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canonicalBenchmarkElevationDraft,
   formatElevation,
   formatMeters,
   formatMillimeters,
@@ -9,7 +10,9 @@ import {
   migrateMillimeterInput,
   millimetersToMeters,
   normalizeMeterInput,
+  normalizeBenchmarkElevationInput,
   normalizeStaffInput,
+  sanitizeBenchmarkElevationInput,
   sanitizeMeterInput,
 } from './units';
 
@@ -18,6 +21,8 @@ describe('chuẩn hóa đơn vị trắc địa', () => {
     expect(metersToMillimeters('1.330')).toBe(1330);
     expect(metersToMillimeters('0,750')).toBe(750);
     expect(metersToMillimeters('1.3304')).toBe(1330);
+    expect(metersToMillimeters('1,2345')).toBe(1235);
+    expect(metersToMillimeters('-1,2345')).toBe(-1235);
     expect(metersToMillimeters('')).toBeNull();
   });
 
@@ -35,9 +40,36 @@ describe('chuẩn hóa đơn vị trắc địa', () => {
     expect(normalizeStaffInput('2000.000')).toBe('2,000');
   });
 
+  it('tự nhận biết cao độ mốc nhập theo mét hoặc milimét', () => {
+    expect(normalizeBenchmarkElevationInput('2')).toBe('2,000');
+    expect(normalizeBenchmarkElevationInput('12')).toBe('12,000');
+    expect(normalizeBenchmarkElevationInput('0958')).toBe('0,958');
+    expect(normalizeBenchmarkElevationInput('0985')).toBe('0,985');
+    expect(normalizeBenchmarkElevationInput('985')).toBe('985,000');
+    expect(normalizeBenchmarkElevationInput('0002')).toBe('0,002');
+    expect(normalizeBenchmarkElevationInput('1234')).toBe('1,234');
+    expect(normalizeBenchmarkElevationInput('1.234')).toBe('1,234');
+    expect(normalizeBenchmarkElevationInput('1,234')).toBe('1,234');
+  });
+
+  it('giữ cú pháp mm có phần lẻ và làm tròn đối xứng đến milimét', () => {
+    expect(sanitizeBenchmarkElevationInput('0958')).toBe('0958');
+    expect(sanitizeBenchmarkElevationInput('2,134.5')).toBe('2,134.5');
+    expect(normalizeBenchmarkElevationInput('2,134.4')).toBe('2,134');
+    expect(normalizeBenchmarkElevationInput('2,134.5')).toBe('2,135');
+    expect(normalizeBenchmarkElevationInput('2.134,5')).toBe('2,135');
+    expect(normalizeBenchmarkElevationInput('-2,134.5')).toBe('-2,135');
+    expect(metersToMillimeters(normalizeBenchmarkElevationInput('2,134.5'))).toBe(2135);
+    expect(canonicalBenchmarkElevationDraft('1234')).toBe('1,234');
+    expect(canonicalBenchmarkElevationDraft('2,134.5')).toBe('2,135');
+    expect(canonicalBenchmarkElevationDraft('..')).toBeNull();
+  });
+
   it('hiển thị chênh cao và số hiệu chỉnh theo milimét nguyên có dấu', () => {
     expect(formatSignedMillimeters(224.6)).toBe('+225');
     expect(formatSignedMillimeters(-203.6)).toBe('-204');
+    expect(formatSignedMillimeters(-0.5)).toBe('-1');
+    expect(formatSignedMillimeters(-1.5)).toBe('-2');
     expect(formatMillimeters(0.4)).toBe('0');
   });
 
