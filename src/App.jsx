@@ -136,7 +136,7 @@ function BenchmarkElevationInput({ value, onValueChange, ariaLabel }) {
   );
 }
 
-function PointCombobox({ value, onValueChange, options = [], placeholder = '', ariaLabel, className = '' }) {
+function PointCombobox({ value, onValueChange, options = [], placeholder = '', ariaLabel, className = '', scopeKey = '' }) {
   const [draft, setDraft] = useState(value || '');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -149,6 +149,12 @@ function PointCombobox({ value, onValueChange, options = [], placeholder = '', a
   const helpId = `${listId}-help`;
 
   useEffect(() => setDraft(value || ''), [value]);
+  useEffect(() => {
+    optionSnapshotRef.current = options;
+    setDraft(value || '');
+    setOpen(false);
+    setActiveIndex(-1);
+  }, [scopeKey]);
 
   const query = uppercaseName(draft).trim();
   const searchOptions = open ? optionSnapshotRef.current : options;
@@ -300,6 +306,10 @@ function loadBooks() {
   return migrated;
 }
 
+function useAvailablePoints(currentBook) {
+  return useMemo(() => collectPointNames(currentBook), [currentBook]);
+}
+
 export default function App() {
   const [books, setBooks] = useState(loadBooks);
   const [book, setBook] = useState(() => normalizeBook(readStorage(STORAGE_KEYS.draft, null) || createBook()));
@@ -315,7 +325,7 @@ export default function App() {
   const activeRun = book.runs[activeRunIndex];
   const solvedRuns = useMemo(() => book.runs.map((run) => solveRun(run, book.benchmarks)), [book]);
   const activeSolved = solvedRuns[activeRunIndex];
-  const pointOptions = useMemo(() => collectPointNames(book), [book]);
+  const availablePoints = useAvailablePoints(book);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -533,7 +543,7 @@ export default function App() {
       <main id="main-content" data-tab={tab}>
         {tab !== 'files' && <RunPicker runs={book.runs} solvedRuns={solvedRuns} runId={activeRun.id} onSelect={selectRun} onAdd={addRun} />}
         {tab === 'measure' && (
-          <Measure book={book} pointOptions={pointOptions} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} updateStation={updateStation} updateRun={updateRun} finish={finishStation} />
+          <Measure book={book} availablePoints={availablePoints} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} updateStation={updateStation} updateRun={updateRun} finish={finishStation} />
         )}
         {tab === 'route' && (
           <Route
@@ -547,7 +557,8 @@ export default function App() {
             remove={deleteStation}
             duplicate={duplicateRun}
             deleteRun={deleteRun}
-            pointOptions={pointOptions}
+            availablePoints={availablePoints}
+            pointScopeKey={book.id}
           />
         )}
         {tab === 'result' && <Results book={book} solvedRuns={solvedRuns} updateBook={updateBook} />}
@@ -572,7 +583,7 @@ export default function App() {
             exporting={exporting}
             fileRef={fileRef}
             importExcel={importExcel}
-            pointOptions={pointOptions}
+            availablePoints={availablePoints}
           />
         )}
       </main>
@@ -617,7 +628,7 @@ function RunPicker({ runs, solvedRuns, runId, onSelect, onAdd }) {
   );
 }
 
-function Measure({ book, pointOptions, run, solved, index, setIndex, updateStation, updateRun, finish }) {
+function Measure({ book, availablePoints, run, solved, index, setIndex, updateStation, updateRun, finish }) {
   const station = run.stations[index];
   const row = solved.rows[index];
   if (!station) return null;
@@ -691,7 +702,8 @@ function Measure({ book, pointOptions, run, solved, index, setIndex, updateStati
           <PointCombobox
             key={station.id}
             ariaLabel="Điểm tới"
-            options={pointOptions}
+            options={availablePoints}
+            scopeKey={book.id}
             placeholder={autoName}
             value={station.point}
             onValueChange={(value) => updateStation(run, station.id, 'point', value)}
@@ -733,7 +745,7 @@ function Staff({ title, prefix, station, row, update }) {
   );
 }
 
-function Route({ run, solved, settingsOpen, setSettingsOpen, updateRun, addStation, edit, remove, duplicate, deleteRun, pointOptions }) {
+function Route({ run, solved, settingsOpen, setSettingsOpen, updateRun, addStation, edit, remove, duplicate, deleteRun, availablePoints, pointScopeKey }) {
   return (
     <section className="route-shell">
       <div className="card runsummary">
@@ -746,7 +758,7 @@ function Route({ run, solved, settingsOpen, setSettingsOpen, updateRun, addStati
           <div className="runsettings open">
             <div className="twofields">
               <label>Tên lượt<input value={run.name} onChange={(event) => updateRun(run.id, { name: event.target.value })} /></label>
-              <div className="field-label"><span>Điểm đầu</span><PointCombobox ariaLabel="Điểm đầu lượt đo" options={pointOptions} value={run.startPoint} onValueChange={(value) => updateRun(run.id, { startPoint: value })} /></div>
+              <div className="field-label"><span>Điểm đầu</span><PointCombobox ariaLabel="Điểm đầu lượt đo" options={availablePoints} scopeKey={pointScopeKey} value={run.startPoint} onValueChange={(value) => updateRun(run.id, { startPoint: value })} /></div>
             </div>
             <div className="runactions"><button onClick={duplicate}><Copy />Nhân bản</button><button className="danger" onClick={deleteRun}><Trash2 />Xóa lượt</button></div>
           </div>
@@ -919,7 +931,7 @@ function SidePointTable({ points = [] }) {
   );
 }
 
-function Files({ book, books, updateBook, setBook, setBooks, newBook, save, saveAs, rename, exportExcel, exportPdf, exporting, fileRef, importExcel, pointOptions }) {
+function Files({ book, books, updateBook, setBook, setBooks, newBook, save, saveAs, rename, exportExcel, exportPdf, exporting, fileRef, importExcel, availablePoints }) {
   const persist = (next) => { setBooks(next); localStorage.setItem(STORAGE_KEYS.books, JSON.stringify(next)); };
   const fileActions = [
     { label: 'Sổ mới', hint: 'Tạo bản đo trống', Icon: FilePlus2, onClick: newBook },
@@ -945,7 +957,7 @@ function Files({ book, books, updateBook, setBook, setBooks, newBook, save, save
         <div className="bench-labels" aria-hidden="true"><span>Tên mốc</span><span>Cao độ H (m)</span></div>
         {book.benchmarks.map((benchmark) => (
           <div className="benchrow" key={benchmark.id}>
-            <PointCombobox ariaLabel="Tên mốc" className="benchmark-point-combobox" options={pointOptions} value={benchmark.name} onValueChange={(value) => updateBook((previous) => ({ ...previous, benchmarks: previous.benchmarks.map((item) => item.id === benchmark.id ? { ...item, name: value } : item) }))} />
+            <PointCombobox ariaLabel="Tên mốc" className="benchmark-point-combobox" options={availablePoints} scopeKey={book.id} value={benchmark.name} onValueChange={(value) => updateBook((previous) => ({ ...previous, benchmarks: previous.benchmarks.map((item) => item.id === benchmark.id ? { ...item, name: value } : item) }))} />
             <label><BenchmarkElevationInput ariaLabel={`Cao độ mốc ${benchmark.name || ''} theo mét`} value={benchmark.elevation} onValueChange={(value) => updateBook((previous) => ({ ...previous, benchmarks: previous.benchmarks.map((item) => item.id === benchmark.id ? { ...item, elevation: value } : item) }))} /><span>m</span></label>
             <button className="danger icon-danger" aria-label={`Xóa mốc ${benchmark.name}`} onClick={() => updateBook((previous) => ({ ...previous, benchmarks: previous.benchmarks.filter((item) => item.id !== benchmark.id) }))}><Trash2 /></button>
           </div>

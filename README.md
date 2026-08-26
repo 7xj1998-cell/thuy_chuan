@@ -2,6 +2,13 @@
 
 Ứng dụng ghi, tính và bình sai cao độ cho nhiều lượt đo độc lập, dùng chung mã nguồn cho web, iPhone và Android.
 
+## Phiên bản 2.4.1
+
+- Loại bỏ hoàn toàn các điểm mẫu `DG3`, `DG4` khỏi sổ mới và nguồn gợi ý Autocomplete.
+- Danh sách điểm chỉ được tạo từ mốc chuẩn cùng các điểm trạm đã ghi trong đúng sổ đang mở; sổ chỉ có mốc `A1` sẽ chỉ gợi ý `A1`.
+- Làm mới dữ liệu gợi ý khi chuyển sổ, ngăn điểm của sổ trước xuất hiện trong dropdown hiện tại.
+- Bổ sung kiểm thử cho sổ trống, sổ một mốc và cách ly dữ liệu giữa nhiều sổ.
+
 ## Phiên bản 2.4.0
 
 - Bổ sung hai loại trị đo **Điểm chuyền (ĐC)** và **Tia phụ (TP)** theo đúng quy trình hiện trường: ĐC chuyển điểm gốc, TP giữ nguyên mia sau.

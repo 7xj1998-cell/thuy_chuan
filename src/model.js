@@ -23,7 +23,7 @@ export const STORAGE_KEYS = {
 export const createBenchmark = (name = '', elevation = '') => ({ id: uid(), name: uppercaseName(name).trim(), elevation: String(elevation ?? '') });
 export const createStation = (point = '', pointType = POINT_TYPE_TURNING) => ({ id: uid(), point: uppercaseName(point).trim(), pointType: normalizePointType(pointType), bs: '', fs: '', distance: '', bsUpper: '', bsMiddle: '', bsLower: '', fsUpper: '', fsMiddle: '', fsLower: '' });
 export const createRun = (index = 1, startPoint = '') => ({ id: uid(), name: `Lượt ${index}`, roundNumber: index, startPoint: uppercaseName(startPoint).trim(), mode: 'single', stations: [createStation()] });
-export const createBook = () => ({ schemaVersion: 5, id: uid(), name: `Sổ ${new Date().toLocaleDateString('vi-VN')}`, benchmarks: [createBenchmark('DG3', '2,222'), createBenchmark('DG4', '1,641')], runs: [createRun(1, 'DG3'), createRun(2, 'DG4')], settings: { toleranceCoefficient: '20' }, createdAt: Date.now(), updatedAt: Date.now() });
+export const createBook = () => ({ schemaVersion: 5, id: uid(), name: `Sổ ${new Date().toLocaleDateString('vi-VN')}`, benchmarks: [createBenchmark()], runs: [createRun()], settings: { toleranceCoefficient: '20' }, createdAt: Date.now(), updatedAt: Date.now() });
 export const nextRunNumber = (runs = []) => Math.max(0, ...runs.map((run) => {
   const value = Number(run.roundNumber);
   return Number.isInteger(value) && value > 0 ? value : 0;

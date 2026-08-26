@@ -8,11 +8,46 @@ import {
   stationOrigin,
   suggestTargetPointName,
 } from './pointNames';
+import { createBook } from './model';
 
 const station = (point, pointType = POINT_TYPE_TURNING) => ({ id: point || crypto.randomUUID(), point, pointType });
 const run = (id, startPoint, stations) => ({ id, startPoint, stations });
 
 describe('tên điểm và gợi ý thông minh', () => {
+  it('không tạo gợi ý ảo trong sổ mới', () => {
+    expect(collectPointNames(createBook())).toEqual([]);
+  });
+
+  it('sổ chỉ có mốc A1 không gợi ý DG4 từ lượt nháp cũ', () => {
+    const book = { benchmarks: [{ name: 'A1' }], runs: [run('r1', 'DG4', [station('')])] };
+    expect(collectPointNames(book)).toEqual(['A1']);
+  });
+
+  it('chỉ lấy mốc và điểm trạm thuộc đúng sổ đang truyền vào', () => {
+    const currentBook = {
+      benchmarks: [{ name: 'A1' }],
+      runs: [
+        run('r1', 'A1', [station('DC1')]),
+        run('r2', 'DIEM_NHAP_CU', [station('')]),
+      ],
+    };
+    const otherBook = {
+      benchmarks: [{ name: 'B1' }],
+      runs: [run('r3', 'B1', [station('DC9')])],
+    };
+
+    expect(collectPointNames(currentBook)).toEqual(['A1', 'DC1']);
+    expect(collectPointNames(otherBook)).toEqual(['B1', 'DC9']);
+  });
+
+  it('hỗ trợ station.fromPoint/toPoint khi đọc dữ liệu trạm đã ghi', () => {
+    const book = {
+      benchmarks: [{ name: 'A1' }],
+      runs: [{ id: 'r1', startPoint: 'DIEM_NHAP_CU', stations: [{ fromPoint: 'A1', toPoint: 'MOC_A' }] }],
+    };
+    expect(collectPointNames(book)).toEqual(['A1', 'MOC_A']);
+  });
+
   it('thu thập và lọc tên điểm trong sổ hiện tại, ưu tiên tiền tố', () => {
     const book = {
       benchmarks: [{ name: 'DG3' }, { name: 'MOC_A' }],

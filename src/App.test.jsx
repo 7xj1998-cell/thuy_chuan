@@ -18,6 +18,12 @@ describe('cấu trúc giao diện mobile', () => {
     expect(html).toMatch(/runselect-label[^>]*>Lượt đo đang dùng<\/span><select[\s\S]*?<\/select><small class="runselect-meta"/);
   });
 
+  it('khởi tạo sổ trống không chứa điểm mẫu DG3 hoặc DG4', () => {
+    const html = renderToStaticMarkup(<App />);
+    expect(html).not.toContain('DG3');
+    expect(html).not.toContain('DG4');
+  });
+
   it('dùng đầu vào mét, khoảng cách tùy chọn và thuật ngữ H_tia', () => {
     const html = renderToStaticMarkup(<App />);
     expect(html).toContain('Số đọc mia sau BS theo mét');

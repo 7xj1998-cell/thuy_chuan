@@ -20,8 +20,16 @@ export function collectPointNames(book) {
 
   (book?.benchmarks || []).forEach((benchmark) => add(benchmark.name));
   (book?.runs || []).forEach((run) => {
-    add(run.startPoint);
-    (run.stations || []).forEach((station) => add(station.point));
+    let origin = cleanPointName(run.startPoint);
+    (run.stations || []).forEach((station) => {
+      const explicitFrom = cleanPointName(station.fromPoint);
+      const toPoint = cleanPointName(station.toPoint) || cleanPointName(station.point);
+      if (!explicitFrom && !toPoint) return;
+
+      add(explicitFrom || origin);
+      add(toPoint);
+      if (normalizePointType(station.pointType) === POINT_TYPE_TURNING && toPoint) origin = toPoint;
+    });
   });
   return names;
 }
