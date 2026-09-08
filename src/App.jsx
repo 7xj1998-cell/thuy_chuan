@@ -11,12 +11,15 @@ import {
   FilePlus2,
   FileText,
   FolderOpen,
-  MapPin,
   PencilLine,
   Plus,
   Route as RouteIcon,
   Save,
   Settings2,
+  ShieldCheck,
+  ArchiveRestore,
+  Search,
+  ArrowRight,
   Trash2,
   TriangleAlert,
   Upload,
@@ -29,14 +32,9 @@ import {
   createRun,
   createStation,
   finalizeStation,
-  migrateLegacyBook,
   nextRunNumber,
-  normalizeBook,
   removeStation,
-  restoreStation,
-  saveAsCopy,
   solveRun,
-  STORAGE_KEYS,
 } from './model';
 import { uid, uppercaseName } from './calc';
 import {
@@ -49,7 +47,10 @@ import {
   remapGeneratedSidePointNames,
   suggestTargetPointName,
 } from './pointNames';
-import { exportExcelReport, exportPdfReport } from './report';
+import { exportExcelReport, exportPdfReport, exportLibraryBackup } from './report';
+import { useNotebookLibrary } from './useNotebookLibrary';
+import { inspectStation, normalizeStationDraft, FIELD_DEFAULTS } from './fieldChecks';
+import { ConfirmDialog, ElevationProfile, SurveyIllustration } from './FieldUI';
 import { OPEN_ROUTE_WARNING } from './terminology';
 import {
   canonicalBenchmarkElevationDraft,
@@ -62,6 +63,7 @@ import {
   normalizeStaffInput,
   sanitizeBenchmarkElevationInput,
   sanitizeMeterInput,
+  READING_FIELDS,
 } from './units';
 
 const NAV_ITEMS = [
@@ -86,7 +88,13 @@ function MeterInput({ value, onValueChange, staffReading = false, sanitizer = sa
       onBlur={(event) => onValueChange(normalize(event.currentTarget.value))}
       onKeyDown={(event) => {
         onKeyDown?.(event);
-        if (!event.defaultPrevented && event.key === 'Enter') event.currentTarget.blur();
+        if (!event.defaultPrevented && event.key === 'Enter') {
+          event.preventDefault();
+          const fields = Array.from(event.currentTarget.closest('.measure-shell')?.querySelectorAll('[data-reading]') || []);
+          const next = fields[fields.indexOf(event.currentTarget) + 1];
+          if (next) next.focus();
+          else event.currentTarget.blur();
+        }
       }}
     />
   );
@@ -288,325 +296,267 @@ function PointCombobox({ value, onValueChange, options = [], placeholder = '', a
   );
 }
 
-function readStorage(key, fallback) {
-  try {
-    return JSON.parse(localStorage.getItem(key)) ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function loadBooks() {
-  const current = readStorage(STORAGE_KEYS.books, null);
-  if (Array.isArray(current)) return current.map(normalizeBook);
-  const legacy = readStorage(STORAGE_KEYS.legacy, []);
-  if (!legacy.length) return [];
-  const migrated = legacy.map(migrateLegacyBook);
-  localStorage.setItem(STORAGE_KEYS.books, JSON.stringify(migrated));
-  return migrated;
-}
-
 function useAvailablePoints(currentBook) {
   return useMemo(() => collectPointNames(currentBook), [currentBook]);
 }
 
 export default function App() {
-  const [books, setBooks] = useState(loadBooks);
-  const [book, setBook] = useState(() => normalizeBook(readStorage(STORAGE_KEYS.draft, null) || createBook()));
+  const library = useNotebookLibrary();
+  const { book, books, updateBook } = library;
   const [tab, setTab] = useState('measure');
   const [runId, setRunId] = useState(() => book.runs[0].id);
   const [stationIndex, setStationIndex] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toast, setToast] = useState(null);
   const [exporting, setExporting] = useState(null);
+  const [checksRequested, setChecksRequested] = useState(false);
+  const [dialog, setDialog] = useState(null);
+  const [pendingImport, setPendingImport] = useState(null);
   const fileRef = useRef(null);
+  const measureRef = useRef(null);
+  const finishLock = useRef(false);
 
   const activeRunIndex = Math.max(0, book.runs.findIndex((run) => run.id === runId));
   const activeRun = book.runs[activeRunIndex];
-  const solvedRuns = useMemo(() => book.runs.map((run) => solveRun(run, book.benchmarks)), [book]);
+  // Preview uses the same normalized readings that will be committed.
+  const solvedRuns = useMemo(() => book.runs.map((run) => solveRun({
+    ...run, stations: run.stations.map((station) => normalizeStationDraft(station, run.mode)),
+  }, book.benchmarks)), [book]);
   const activeSolved = solvedRuns[activeRunIndex];
   const availablePoints = useAvailablePoints(book);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      localStorage.setItem(STORAGE_KEYS.draft, JSON.stringify({ ...book, updatedAt: Date.now() }));
-    }, 180);
-    return () => clearTimeout(timer);
-  }, [book]);
+    setRunId(book.runs[0].id);
+    setStationIndex(0);
+    setChecksRequested(false);
+    setSettingsOpen(false);
+    setDialog(null);
+  }, [book.id]);
+
+  useEffect(() => {
+    finishLock.current = false;
+    setChecksRequested(false);
+  }, [book.id, runId, stationIndex]);
 
   useEffect(() => {
     if (!toast) return undefined;
-    const timer = setTimeout(() => setToast(null), toast.action ? 4500 : 1800);
+    const timer = setTimeout(() => setToast(null), toast.action ? 6000 : 2400);
     return () => clearTimeout(timer);
   }, [toast]);
 
-  const updateBook = (updater) => {
-    setBook((previous) => {
-      const next = typeof updater === 'function' ? updater(previous) : { ...previous, ...updater };
-      return normalizeBook({ ...next, updatedAt: Date.now() });
-    });
-  };
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const updateKeyboard = () => {
+      const editing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '');
+      document.body.classList.toggle('keyboard-open', Boolean(editing && viewport && window.innerHeight - viewport.height > 130));
+    };
+    viewport?.addEventListener('resize', updateKeyboard);
+    document.addEventListener('focusin', updateKeyboard);
+    document.addEventListener('focusout', updateKeyboard);
+    return () => {
+      viewport?.removeEventListener('resize', updateKeyboard);
+      document.removeEventListener('focusin', updateKeyboard);
+      document.removeEventListener('focusout', updateKeyboard);
+      document.body.classList.remove('keyboard-open');
+    };
+  }, []);
 
-  const updateRun = (id, patch) => {
-    updateBook((previous) => ({
-      ...previous,
-      runs: previous.runs.map((run) => run.id === id ? { ...run, ...patch } : run),
-    }));
-  };
-
-  const updateStation = (run, stationId, field, value) => {
-    updateBook((previous) => ({
-      ...previous,
-      runs: previous.runs.map((currentRun) => currentRun.id === run.id
-        ? {
-          ...currentRun,
-          stations: currentRun.stations.map((station) => station.id === stationId
-            ? { ...station, [field]: field === 'point' ? uppercaseName(value).trimStart() : value }
-            : station),
-        }
-        : currentRun),
-    }));
-  };
-
+  const updateRun = (id, patch) => updateBook((previous) => ({
+    ...previous, runs: previous.runs.map((run) => run.id === id ? { ...run, ...patch } : run),
+  }));
+  const updateStation = (run, stationId, field, value) => updateBook((previous) => ({
+    ...previous, runs: previous.runs.map((item) => item.id === run.id ? {
+      ...item, stations: item.stations.map((station) => station.id === stationId
+        ? { ...station, [field]: field === 'point' ? uppercaseName(value).trimStart() : value, committedAt: undefined }
+        : station),
+    } : item),
+  }));
   function selectRun(id) {
-    setRunId(id);
-    setStationIndex(0);
-    setSettingsOpen(false);
+    setRunId(id); setStationIndex(0); setSettingsOpen(false);
   }
-
-  function addRun() {
-    const next = createRun(nextRunNumber(book.runs), book.benchmarks[0]?.name || '');
-    updateBook((previous) => ({ ...previous, runs: [...previous.runs, next] }));
-    selectRun(next.id);
+  function addRun(mode = 'single') {
+    const next = { ...createRun(nextRunNumber(book.runs), book.benchmarks.find((item) => item.name)?.name || ''), mode };
+    if (updateBook((previous) => ({ ...previous, runs: [...previous.runs, next] }))) selectRun(next.id);
   }
-
+  function changeMode(mode) {
+    if (mode === activeRun.mode) return;
+    const hasReadings = activeRun.stations.some((station) => READING_FIELDS.some((field) => String(station[field] ?? '').trim()));
+    if (hasReadings) {
+      setDialog({
+        title: 'Đổi phương pháp đo',
+        description: 'Lượt này đã có số đọc. Tạo lượt mới để đo ' + (mode === 'three' ? '3 chỉ' : '1 chỉ') + ' và giữ đúng số liệu của lượt hiện tại.',
+        confirmLabel: 'Tạo lượt mới',
+        onConfirm: () => { addRun(mode); setDialog(null); },
+      });
+    } else updateRun(activeRun.id, { mode });
+  }
   function addStation() {
-    const next = createStation();
-    updateRun(activeRun.id, { stations: [...activeRun.stations, next] });
-    setStationIndex(activeRun.stations.length);
+    const last = activeRun.stations.at(-1);
+    if (!last.point && !READING_FIELDS.some((field) => String(last[field] ?? '').trim())) {
+      setStationIndex(activeRun.stations.length - 1);
+    } else {
+      if (!updateRun(activeRun.id, { stations: [...activeRun.stations, createStation()] })) return;
+      setStationIndex(activeRun.stations.length);
+    }
     setTab('measure');
   }
-
-  function finishStation() {
+  function finishStation(acknowledged = false) {
+    if (finishLock.current) return;
     const station = activeRun.stations[stationIndex];
+    if (!station) return;
     const pointType = normalizePointType(station.pointType);
     const autoName = suggestTargetPointName(book, activeRun.id, stationIndex, pointType);
-    const result = finalizeStation(activeRun, stationIndex, autoName);
-    if (!result.committed) {
-      alert('Nhập tên điểm tới trước khi hoàn tất trạm.');
+    const inspection = inspectStation(book, activeRun, stationIndex, autoName);
+    setChecksRequested(true);
+    if (inspection.errors.length) {
+      measureRef.current?.querySelector('.quality-card')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
       return;
     }
-    updateRun(activeRun.id, { stations: result.stations });
+    if (inspection.warnings.length && !acknowledged) {
+      setDialog({
+        title: 'Kiểm tra lại trước khi lưu',
+        description: 'Một số dữ liệu cần anh xác nhận. Các ngưỡng này là nhắc nhập liệu, không thay cho tiêu chuẩn nghiệm thu.',
+        messages: inspection.warnings.map((item) => item.message),
+        confirmLabel: 'Đã kiểm tra · Lưu trạm',
+        onConfirm: () => { setDialog(null); finishStation(true); },
+      });
+      return;
+    }
+    const normalized = {
+      ...activeRun,
+      stations: activeRun.stations.map((item, i) => i === stationIndex ? {
+        ...normalizeStationDraft(item, activeRun.mode),
+        committedAt: Date.now(),
+        reviewNotes: acknowledged ? inspection.warnings.map((entry) => entry.message) : [],
+      } : item),
+    };
+    const result = finalizeStation(normalized, stationIndex, autoName);
+    if (!result.committed) return;
+    finishLock.current = true;
+    const saved = updateBook((previous) => ({
+      ...previous, runs: previous.runs.map((run) => run.id === activeRun.id ? { ...run, stations: result.stations } : run),
+    }), { checkpoint: 'Hoàn tất trạm' });
+    if (!saved) { finishLock.current = false; return; }
     setStationIndex(result.nextIndex);
-    setToast({ text: pointType === POINT_TYPE_SIDE ? 'Đã lưu tia phụ' : 'Đã lưu điểm chuyền' });
-  }
-
-  function deleteStation(index) {
-    const result = removeStation(activeRun, index);
-    if (!result.removed) {
-      alert('Lượt đo cần ít nhất 1 trạm.');
-      return;
-    }
-    updateRun(activeRun.id, { stations: result.stations });
-    setStationIndex(Math.min(stationIndex, result.stations.length - 1));
-    setToast({
-      text: `Đã xóa trạm ${index + 1}`,
-      action: {
-        label: 'Hoàn tác',
-        fn: () => {
-          updateRun(activeRun.id, { stations: restoreStation(result.stations, result.removed) });
-          setStationIndex(index);
-        },
-      },
+    setToast({ text: 'Đã lưu ' + result.point + ' · ' + (pointType === POINT_TYPE_SIDE ? 'Giữ nguyên mia sau' : 'Sẵn sàng trạm tiếp theo') });
+    requestAnimationFrame(() => {
+      const field = measureRef.current?.querySelector('[data-reading="bs"], [data-reading="bsUpper"]');
+      field?.focus({ preventScroll: true });
+      field?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     });
   }
-
+  function deleteStation(index) {
+    const result = removeStation(activeRun, index);
+    if (!result.removed) { setToast({ text: 'Lượt đo cần ít nhất một trạm.' }); return; }
+    const before = structuredClone(activeRun.stations);
+    if (!updateBook((previous) => ({ ...previous, runs: previous.runs.map((run) => run.id === activeRun.id ? { ...run, stations: result.stations } : run) }), { checkpoint: 'Xóa trạm' })) return;
+    setStationIndex(Math.min(stationIndex, result.stations.length - 1));
+    setToast({ text: 'Đã xóa trạm ' + (index + 1), action: { label: 'Hoàn tác', fn: () => {
+      updateRun(activeRun.id, { stations: before }); setStationIndex(index);
+    } } });
+  }
   function save() {
-    const saved = normalizeBook({ ...book, updatedAt: Date.now() });
-    const next = [saved, ...books.filter((item) => item.id !== saved.id)];
-    setBook(saved);
-    setBooks(next);
-    localStorage.setItem(STORAGE_KEYS.books, JSON.stringify(next));
-    localStorage.removeItem(STORAGE_KEYS.draft);
-    setToast({ text: 'Đã lưu sổ' });
+    if (library.saveNow()) setToast({ text: 'Đã lưu sổ trên thiết bị' });
   }
-
   function saveAs() {
-    const name = prompt('Tên sổ mới:', `${book.name} - bản sao`);
-    if (!name?.trim()) return;
-    const copy = saveAsCopy(book, name);
-    const next = [copy, ...books];
-    setBook(copy);
-    setBooks(next);
-    setRunId(copy.runs[0].id);
-    setStationIndex(0);
-    localStorage.setItem(STORAGE_KEYS.books, JSON.stringify(next));
-    setToast({ text: 'Đã lưu thành sổ mới' });
+    const name = prompt('Tên bản sao:', book.name + ' - bản sao');
+    if (name?.trim() && library.copyBook(name.trim())) setToast({ text: 'Đã tạo bản sao trong thư viện' });
   }
-
   function renameBook() {
-    const name = prompt('Đổi tên sổ:', book.name);
+    const name = prompt('Tên sổ:', book.name);
     if (name?.trim()) updateBook({ name: name.trim() });
   }
-
   function newBook() {
-    if (!confirm('Tạo sổ mới? Bản nháp hiện tại vẫn được lưu.')) return;
-    const next = createBook();
-    setBook(next);
-    setRunId(next.runs[0].id);
-    setStationIndex(0);
-    setTab('measure');
+    if (library.newBook()) { setTab('measure'); setToast({ text: 'Đã cất sổ trước vào thư viện' }); }
   }
-
   function duplicateRun() {
-    const id = uid();
-    const roundNumber = nextRunNumber(book.runs);
-    const copy = {
-      ...structuredClone(activeRun),
-      id,
-      roundNumber,
-      name: `${activeRun.name} - bản sao`,
+    const id = uid(), roundNumber = nextRunNumber(book.runs);
+    const copy = { ...structuredClone(activeRun), id, roundNumber, name: activeRun.name + ' - bản sao',
       stations: remapGeneratedSidePointNames(book, activeRun, id, roundNumber).map((station) => ({ ...station, id: uid() })),
     };
-    updateBook((previous) => ({ ...previous, runs: [...previous.runs, copy] }));
-    selectRun(copy.id);
+    if (updateBook((previous) => ({ ...previous, runs: [...previous.runs, copy] }))) selectRun(copy.id);
   }
-
   function deleteRun() {
-    if (book.runs.length <= 1) {
-      alert('Sổ cần ít nhất 1 lượt.');
-      return;
-    }
-    if (!confirm('Xóa lượt này?')) return;
-    const runs = book.runs.filter((run) => run.id !== activeRun.id);
-    updateBook((previous) => ({ ...previous, runs }));
-    selectRun(runs[0].id);
+    if (book.runs.length <= 1) { setToast({ text: 'Sổ cần ít nhất một lượt.' }); return; }
+    setDialog({ title: 'Xóa ' + activeRun.name + '?', description: 'Bản trước khi xóa sẽ được giữ trong lịch sử khôi phục của sổ.', confirmLabel: 'Xóa lượt', onConfirm: () => {
+      const runs = book.runs.filter((run) => run.id !== activeRun.id);
+      if (updateBook((previous) => ({ ...previous, runs }), { checkpoint: 'Xóa lượt' })) selectRun(runs[0].id);
+      setDialog(null);
+    } });
   }
-
   async function exportReport(type) {
-    const label = type === 'pdf' ? 'PDF' : 'Excel';
-    const desired = prompt(`Tên file ${label}:`, book.name);
-    if (!desired?.trim()) return;
+    if (exporting) return;
     setExporting(type);
-    setToast({ text: `Đang tạo ${label}...` });
     try {
-      const filename = type === 'pdf'
-        ? await exportPdfReport(book, solvedRuns, desired.trim())
-        : await exportExcelReport(book, solvedRuns, desired.trim());
-      setToast({ text: `Đã xuất ${filename}` });
-    } catch (error) {
-      console.error(error);
-      setToast(null);
-      alert(`Không thể xuất ${label}. Vui lòng thử lại.`);
-    } finally {
-      setExporting(null);
+      const filename = type === 'pdf' ? await exportPdfReport(book, solvedRuns, book.name) : await exportExcelReport(book, solvedRuns, book.name);
+      setToast({ text: 'Đã xuất ' + filename });
+    } catch { setToast({ text: 'Chưa xuất được tệp. Kiểm tra dung lượng rồi thử lại.' }); }
+    finally { setExporting(null); }
+  }
+  async function backupAll() {
+    if (exporting) return;
+    setExporting('backup');
+    try {
+      const json = library.exportBackup();
+      if (!json) throw new Error('empty');
+      await exportLibraryBackup(json);
+      setToast({ text: 'Đã tạo tệp sao lưu toàn bộ thư viện' });
+    } catch { setToast({ text: 'Chưa tạo được sao lưu. Hãy thử lại.' }); }
+    finally { setExporting(null); }
+  }
+  async function importFile(file) {
+    if (exporting) return;
+    setExporting('import');
+    try {
+      if (file.size > 20 * 1024 * 1024) throw new Error('Tệp vượt 20 MB. Hãy chia nhỏ sổ trước khi nhập.');
+      let raw;
+      if (/\.json$/i.test(file.name)) raw = JSON.parse(await file.text());
+      else {
+        const XLSX = await import('xlsx');
+        const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+        if (!workbook.Props?.Comments) throw new Error('Hãy chọn Excel được xuất từ ứng dụng hoặc tệp sao lưu JSON.');
+        raw = JSON.parse(workbook.Props.Comments);
+      }
+      setPendingImport({ raw, filename: file.name });
+    } catch (error) { setToast({ text: error.message || 'Tệp không hợp lệ. Sổ hiện tại vẫn được giữ nguyên.' }); }
+    finally { setExporting(null); }
+  }
+  function confirmImport() {
+    if (!pendingImport) return;
+    if (library.importBooks(pendingImport.raw)) {
+      setPendingImport(null);
+      setToast({ text: 'Đã nhập thành bản riêng · Các sổ cũ vẫn được giữ' });
+      setTab('files');
     }
   }
-
-  async function importExcel(file) {
-    try {
-      const XLSX = await import('xlsx');
-      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
-      if (!workbook.Props?.Comments) throw new Error('Không có dữ liệu sổ');
-      const raw = JSON.parse(workbook.Props.Comments);
-      const imported = Number(raw.schemaVersion) >= 2 ? normalizeBook(raw) : migrateLegacyBook(raw);
-      const copy = normalizeBook({
-        ...imported,
-        id: uid(),
-        name: `${imported.name || file.name} (nhập)`,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      });
-      setBook(copy);
-      setRunId(copy.runs[0].id);
-      setStationIndex(0);
-      setToast({ text: 'Đã nhập thành sổ mới' });
-    } catch (error) {
-      console.error(error);
-      alert('File Excel không đúng định dạng sổ thủy chuẩn.');
-    }
-  }
+  const saveLabel = library.saveState === 'error' ? 'Chưa lưu được' : library.saveState === 'unsaved' ? 'Đang lưu' : 'Đã lưu trên máy';
 
   return (
-    <div className="app-v3">
-      <header className="topbar">
-        <div className="brand-lockup">
-          <div className="brand-symbol" aria-hidden="true"><Crosshair /></div>
-          <div className="brand">
-            <div className="eyebrow"><span className="status-dot" />SỔ ĐO HIỆN TRƯỜNG · m / mm</div>
-            <h1>{book.name}</h1>
-          </div>
-        </div>
-        <button className="iconbtn" onClick={renameBook} aria-label="Đổi tên sổ" title="Đổi tên sổ"><PencilLine /></button>
+    <div className="app-v3 app-v25">
+      <header className="workspace-header">
+        <div className="brand-mark" aria-hidden="true"><Crosshair /></div>
+        <div className="brand-copy"><div className="eyebrow">THỦY CHUẨN <span className="version-badge">2.5</span></div><h1>{book.name}</h1></div>
+        <div className="workspace-status"><button className="iconbtn" onClick={renameBook} aria-label="Đổi tên sổ"><PencilLine /></button></div>
       </header>
-
       <main id="main-content" data-tab={tab}>
-        {tab !== 'files' && <RunPicker runs={book.runs} solvedRuns={solvedRuns} runId={activeRun.id} onSelect={selectRun} onAdd={addRun} />}
-        {tab === 'measure' && (
-          <Measure book={book} availablePoints={availablePoints} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} updateStation={updateStation} updateRun={updateRun} finish={finishStation} />
-        )}
-        {tab === 'route' && (
-          <Route
-            run={activeRun}
-            solved={activeSolved}
-            settingsOpen={settingsOpen}
-            setSettingsOpen={setSettingsOpen}
-            updateRun={updateRun}
-            addStation={addStation}
-            edit={(index) => { setStationIndex(index); setTab('measure'); }}
-            remove={deleteStation}
-            duplicate={duplicateRun}
-            deleteRun={deleteRun}
-            availablePoints={availablePoints}
-            pointScopeKey={book.id}
-          />
-        )}
+        <div className="field-toolbar"><span><span className="status-dot" />Sổ đo hiện trường · m / mm</span><span className="save-indicator" data-state={library.saveState}><ShieldCheck size={14} />{saveLabel}</span></div>
+        {library.storageError && <div className="storage-banner" role="alert"><TriangleAlert /><div><b>Cần bảo vệ dữ liệu</b><p>{library.storageError}</p><button onClick={backupAll} disabled={Boolean(exporting)}>Tải sao lưu ngay</button><button onClick={save}>Thử lưu lại</button></div></div>}
+        {library.saveState === 'recovered' && !library.storageError && <p className="storage-banner" role="status">Đã khôi phục thư viện từ bản lưu an toàn gần nhất.</p>}
+        {tab !== 'files' && <RunPicker runs={book.runs} solvedRuns={solvedRuns} runId={activeRun.id} onSelect={selectRun} onAdd={() => addRun()} />}
+        {tab === 'measure' && <div ref={measureRef}><Measure book={book} availablePoints={availablePoints} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} updateStation={updateStation} updateRun={updateRun} updateBook={updateBook} finish={() => finishStation()} changeMode={changeMode} checksRequested={checksRequested} /></div>}
+        {tab === 'route' && <><ElevationProfile solved={activeSolved} /><Route run={activeRun} solved={activeSolved} settingsOpen={settingsOpen} setSettingsOpen={setSettingsOpen} updateRun={updateRun} addStation={addStation} edit={(index) => { setStationIndex(index); setTab('measure'); }} remove={deleteStation} duplicate={duplicateRun} deleteRun={deleteRun} availablePoints={availablePoints} pointScopeKey={book.id} /></>}
         {tab === 'result' && <Results book={book} solvedRuns={solvedRuns} updateBook={updateBook} />}
-        {tab === 'files' && (
-          <Files
-            book={book}
-            books={books}
-            updateBook={updateBook}
-            setBook={(value) => {
-              const normalized = normalizeBook(value);
-              setBook(normalized);
-              setRunId(normalized.runs[0].id);
-              setStationIndex(0);
-            }}
-            setBooks={setBooks}
-            newBook={newBook}
-            save={save}
-            saveAs={saveAs}
-            rename={renameBook}
-            exportExcel={() => exportReport('xlsx')}
-            exportPdf={() => exportReport('pdf')}
-            exporting={exporting}
-            fileRef={fileRef}
-            importExcel={importExcel}
-            availablePoints={availablePoints}
-          />
-        )}
+        {tab === 'files' && <Files book={book} books={books} library={library} updateBook={updateBook} newBook={newBook} save={save} saveAs={saveAs} exportExcel={() => exportReport('xlsx')} exportPdf={() => exportReport('pdf')} backupAll={backupAll} exporting={exporting} fileRef={fileRef} importFile={importFile} availablePoints={availablePoints} setDialog={setDialog} />}
       </main>
-
       <nav className="bottom" aria-label="Điều hướng chính">
-        {NAV_ITEMS.map(({ id, label, Icon }) => (
-          <button key={id} className={tab === id ? 'active' : ''} aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>
-            <span className="nav-icon" aria-hidden="true"><Icon /></span>
-            <span className="nav-label">{label}</span>
-          </button>
-        ))}
+        {NAV_ITEMS.map(({ id, label, Icon }) => <button key={id} className={tab === id ? 'active' : ''} aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}><span className="nav-icon" aria-hidden="true"><Icon /></span><span className="nav-label">{label}</span></button>)}
       </nav>
-
-      {toast && (
-        <div className="toast" role="status" aria-live="polite">
-          <span>{toast.text}</span>
-          {toast.action && <button onClick={() => { toast.action.fn(); setToast(null); }}>{toast.action.label}</button>}
-        </div>
-      )}
+      {toast && <div className="toast" role="status" aria-live="polite"><span>{toast.text}</span>{toast.action && <button onClick={() => { toast.action.fn(); setToast(null); }}>{toast.action.label}</button>}</div>}
+      {dialog && <ConfirmDialog {...dialog} onClose={() => setDialog(null)} />}
+      {pendingImport && <ConfirmDialog title="Nhập sổ vào thư viện" description={pendingImport.filename} messages={['Sổ đang làm sẽ được lưu trước khi nhập.', 'Tệp được thêm thành bản riêng; tên trùng không ghi đè sổ cũ.', 'Tệp sai định dạng sẽ bị từ chối.']} confirmLabel="Nhập bản riêng" onConfirm={confirmImport} onClose={() => setPendingImport(null)} />}
     </div>
   );
 }
-
 function RunPicker({ runs, solvedRuns, runId, onSelect, onAdd }) {
   const selectedRun = runs.find((run) => run.id === runId) || runs[0];
   const selectedSolved = solvedRuns.find((solved) => solved.runId === selectedRun.id);
@@ -628,113 +578,127 @@ function RunPicker({ runs, solvedRuns, runId, onSelect, onAdd }) {
   );
 }
 
-function Measure({ book, availablePoints, run, solved, index, setIndex, updateStation, updateRun, finish }) {
+function StartSession({ book, run, updateBook, availablePoints }) {
+  const existing = book.benchmarks.filter((item) => item.name && canonicalBenchmarkElevationDraft(item.elevation));
+  const [name, setName] = useState(existing[0]?.name || '');
+  const [elevation, setElevation] = useState(existing[0]?.elevation || '');
+  const [setupError, setSetupError] = useState('');
+  const canonical = canonicalBenchmarkElevationDraft(elevation);
+  function chooseName(value) {
+    setName(value);
+    const match = existing.find((item) => item.name === uppercaseName(value).trim());
+    if (match) setElevation(match.elevation);
+  }
+  function start(event) {
+    event.preventDefault();
+    const point = uppercaseName(name).trim();
+    if (!point || !canonical) { setSetupError('Nhập tên mốc và cao độ gốc để bắt đầu.'); return; }
+    const saved = existing.find((item) => item.name === point);
+    if (saved && canonicalBenchmarkElevationDraft(saved.elevation) !== canonical) { setSetupError('Mốc đã có cao độ khác. Hãy kiểm tra tại Mốc chuẩn trong Sổ & tệp.'); return; }
+    updateBook((previous) => ({
+      ...previous,
+      benchmarks: saved ? previous.benchmarks : [...previous.benchmarks.filter((item) => item.name !== point && item.name), createBenchmark(point, canonical)],
+      runs: previous.runs.map((item) => item.id === run.id ? { ...item, startPoint: point } : item),
+    }));
+  }
+  return <form className="start-session card" onSubmit={start}>
+    <div className="card-heading"><span>Bắt đầu tại mốc gốc</span><h2>Sẵn sàng ra hiện trường.</h2><p>Chọn mốc và cao độ một lần. Điểm sau được nối tự động.</p></div>
+    <SurveyIllustration />
+    <div className="start-fields">
+      <div className="field-label"><span>Tên mốc gốc</span><PointCombobox ariaLabel="Tên mốc gốc" options={availablePoints} value={name} onValueChange={chooseName} scopeKey={book.id} /></div>
+      <div className="field-label"><span>Cao độ gốc · m</span><BenchmarkElevationInput value={elevation} onValueChange={setElevation} ariaLabel="Cao độ gốc theo mét" /></div>
+    </div>
+    {setupError && <p className="warning" role="alert">{setupError}</p>}
+    <button className="primary" type="submit" disabled={!name.trim() || !canonical}><Crosshair />Bắt đầu đo từ {name || 'mốc gốc'}<ArrowRight /></button>
+  </form>;
+}
+
+function Measure({ book, availablePoints, run, solved, index, setIndex, updateStation, updateRun, updateBook, finish, changeMode, checksRequested }) {
   const station = run.stations[index];
   const row = solved.rows[index];
   if (!station) return null;
-  const progress = Math.round(((index + 1) / run.stations.length) * 100);
   const pointType = normalizePointType(station.pointType);
   const autoName = suggestTargetPointName(book, run.id, index, pointType);
   const displayPoint = station.point || autoName;
+  const inspection = inspectStation(book, run, index, autoName);
+  const visibleIssues = checksRequested ? [...inspection.errors, ...inspection.warnings] : inspection.ready ? inspection.warnings : [];
+  const level = checksRequested && inspection.errors.length ? 'error' : visibleIssues.length ? 'warning' : inspection.ready ? 'ready' : 'pending';
+  const savedCount = solved.rows.filter((item) => item.point && item.delta !== null).length;
+  const update = (field, value) => updateStation(run, station.id, field, value);
 
   return (
     <section className="measure-shell">
-      <div className="station-toolbar">
-        <div className="measure-head">
-          <div className="runlabel"><span className="section-kicker">Đang đo</span><strong>Trạm {index + 1} <i>/ {run.stations.length}</i></strong><small>{run.name}</small></div>
-          <div className="seg" aria-label="Phương pháp đọc mia">
-            <button aria-pressed={run.mode === 'single'} className={run.mode === 'single' ? 'active' : ''} onClick={() => updateRun(run.id, { mode: 'single' })}>1 chỉ</button>
-            <button aria-pressed={run.mode === 'three'} className={run.mode === 'three' ? 'active' : ''} onClick={() => updateRun(run.id, { mode: 'three' })}>3 chỉ</button>
-          </div>
-        </div>
-        <div className="station-progress" aria-label={`Tiến độ ${progress}%`} role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={progress}><span style={{ width: `${progress}%` }} /></div>
-      </div>
-      <div className="anchorline">
-        <span className="anchor-icon" aria-hidden="true"><MapPin /></span>
-        <span className="anchor-copy"><span>Điểm đặt mia sau</span><small className="numeric">H = {formatElevation(row?.fromElevation)} m</small></span>
-        <b>{row?.fromName || run.startPoint || '—'}</b>
-      </div>
-
-      <div className="readings">
-        {run.mode === 'single' ? (
-          <>
-            <div className="reading reading-bs">
-              <div className="reading-title"><span>Mia sau<small>Nhập theo mét</small></span><em>BS · m</em></div>
-              <MeterInput className="hero-input" staffReading aria-label="Số đọc mia sau BS theo mét" enterKeyHint="next" value={station.bs} onValueChange={(value) => updateStation(run, station.id, 'bs', value)} />
-              <small className="reading-example">Định dạng: <b className="numeric">2,000</b></small>
+      <div className="measure-intro"><div><span className="section-kicker">ĐO HIỆN TRƯỜNG</span><h2>Trạm {String(index + 1).padStart(2, '0')}<span className="session-pill">{run.mode === 'single' ? '1 chỉ' : '3 chỉ'}</span></h2></div><span className="session-pill"><Check size={14} />{savedCount} trạm có số đọc</span></div>
+      {!run.startPoint && <StartSession key={run.id} book={book} run={run} updateBook={updateBook} availablePoints={availablePoints} />}
+      <div className={`measure-layout${run.startPoint ? '' : ' is-locked'}`} aria-hidden={!run.startPoint}>
+        <div className="measure-primary">
+          <div className="survey-console">
+            <div className="console-top">
+              <div><span className="section-kicker">ĐIỂM ĐẶT MIA SAU</span><strong>{row?.fromName || run.startPoint || 'Chọn mốc gốc'}</strong><small className="numeric">H = {formatElevation(row?.fromElevation)} m</small></div>
+              <div className="seg" aria-label="Phương pháp đọc mia">
+                <button type="button" aria-pressed={run.mode === 'single'} className={run.mode === 'single' ? 'active' : ''} onClick={() => changeMode('single')}>1 chỉ</button>
+                <button type="button" aria-pressed={run.mode === 'three'} className={run.mode === 'three' ? 'active' : ''} onClick={() => changeMode('three')}>3 chỉ</button>
+              </div>
             </div>
-            <div className="reading reading-fs">
-              <div className="reading-title"><span>Mia trước<small>Nhập theo mét</small></span><em>FS · m</em></div>
-              <MeterInput className="hero-input" staffReading aria-label="Số đọc mia trước FS theo mét" enterKeyHint="next" value={station.fs} onValueChange={(value) => updateStation(run, station.id, 'fs', value)} />
-              <small className="reading-example">Định dạng: <b className="numeric">1,585</b></small>
+            <div className="reading-grid readings">
+              {run.mode === 'single' ? <>
+                <div className="reading reading-bs"><div className="reading-title"><span>Mia sau<small>Số đọc theo mét</small></span><em>BS</em></div>
+                  <MeterInput className="hero-input" data-reading="bs" staffReading aria-label="Số đọc mia sau BS theo mét" aria-invalid={checksRequested && inspection.errors.some((item) => item.field === 'bs')} enterKeyHint="next" value={station.bs} onValueChange={(value) => update('bs', value)} onFocus={(event) => event.target.select()} />
+                  <small className="reading-example">Định dạng: <b className="numeric">2,000</b> m</small></div>
+                <div className="reading reading-fs"><div className="reading-title"><span>Mia trước<small>Số đọc theo mét</small></span><em>FS</em></div>
+                  <MeterInput className="hero-input" data-reading="fs" staffReading aria-label="Số đọc mia trước FS theo mét" aria-invalid={checksRequested && inspection.errors.some((item) => item.field === 'fs')} enterKeyHint="done" value={station.fs} onValueChange={(value) => update('fs', value)} onFocus={(event) => event.target.select()} />
+                  <small className="reading-example">Định dạng: <b className="numeric">1,585</b> m</small></div>
+              </> : <>
+                <Staff title="Mia sau" prefix="bs" station={station} row={row} update={update} />
+                <Staff title="Mia trước" prefix="fs" station={station} row={row} update={update} />
+              </>}
             </div>
-          </>
-        ) : (
-          <>
-            <Staff title="Mia sau" prefix="bs" station={station} row={row} update={(field, value) => updateStation(run, station.id, field, value)} />
-            <Staff title="Mia trước" prefix="fs" station={station} row={row} update={(field, value) => updateStation(run, station.id, field, value)} />
-          </>
-        )}
-      </div>
-
-      {run.mode === 'single' ? (
-        <label className="distance-manual distance-input">
-          <span>Khoảng cách đoạn <small>Không bắt buộc · m</small></span>
-          <MeterInput aria-label="Khoảng cách đoạn theo mét, không bắt buộc" placeholder="Nhập khoảng cách (m)..." value={station.distance} onValueChange={(value) => updateStation(run, station.id, 'distance', value)} />
-        </label>
-      ) : (
-        <div className="distance-manual distance-stats">
-          <span>Chênh cự ly <b className="numeric">{formatMeters(row?.distanceDifference)} m</b></span>
-          <span>Cự ly trạm <b className="numeric">{formatMeters(row?.distance)} m</b></span>
-        </div>
-      )}
-
-      <div className={`pointbox pointbox-${pointType}`}>
-        <div className="point-type-row">
-          <span>Loại điểm tới</span>
-          <div className="point-type-toggle" role="group" aria-label="Chọn loại điểm tới">
-            <button type="button" className={pointType === POINT_TYPE_TURNING ? 'active' : ''} aria-pressed={pointType === POINT_TYPE_TURNING} onClick={() => updateStation(run, station.id, 'pointType', POINT_TYPE_TURNING)}>Điểm chuyền <small>ĐC</small></button>
-            <button type="button" className={pointType === POINT_TYPE_SIDE ? 'active' : ''} aria-pressed={pointType === POINT_TYPE_SIDE} onClick={() => updateStation(run, station.id, 'pointType', POINT_TYPE_SIDE)}>Tia phụ <small>TP</small></button>
+            <div className="result-strip" aria-label="Kết quả tính tức thời">
+              <div><span>H tới · {displayPoint}</span><strong className="numeric">{formatElevation(row?.elevation)} <small>m</small></strong></div>
+              <div><span>Chênh cao · Δh</span><b className="numeric">{formatSignedMillimeters(row?.delta)} <small>mm</small></b></div>
+              <div><span>Cao độ tia ngắm (H<sub>tia</sub>)</span><b className="numeric">{formatElevation(row?.hi)} <small>m</small></b></div>
+            </div>
           </div>
+          <div className="pointbox">
+            <div className="point-type-toggle" role="group" aria-label="Chọn loại điểm tới">
+              <button type="button" className={pointType === POINT_TYPE_TURNING ? 'active' : ''} aria-pressed={pointType === POINT_TYPE_TURNING} onClick={() => update('pointType', POINT_TYPE_TURNING)}>Điểm chuyền <small>ĐC</small></button>
+              <button type="button" className={pointType === POINT_TYPE_SIDE ? 'active' : ''} aria-pressed={pointType === POINT_TYPE_SIDE} onClick={() => update('pointType', POINT_TYPE_SIDE)}>Tia phụ <small>TP</small></button>
+            </div>
+            <div className="point-entry"><span>Điểm tới</span><PointCombobox key={station.id} ariaLabel="Điểm tới" options={availablePoints} scopeKey={book.id} placeholder={autoName} value={station.point} onValueChange={(value) => update('point', value)} /></div>
+            <p className="point-guidance">{pointType === POINT_TYPE_SIDE ? 'Giữ nguyên mia sau · Tia phụ không tham gia bình sai.' : 'Để trống tên: dùng ' + autoName + ' và tự nối sang trạm tiếp theo.'}</p>
+          </div>
+          <details className="quick-options" key={run.mode}>
+            <summary><span>Khoảng cách & ghi chú</span><span>{station.distance ? formatMeters(Number(String(station.distance).replace(',', '.'))) + ' m' : 'Tùy chọn'}</span></summary>
+            {run.mode === 'single' ? <label className="distance-manual distance-input"><span>Khoảng cách đoạn <small>Không bắt buộc · m</small></span><MeterInput aria-label="Khoảng cách đoạn theo mét, không bắt buộc" placeholder="Nhập khoảng cách (m)..." value={station.distance} onValueChange={(value) => update('distance', value)} /></label> : <div className="distance-manual distance-stats"><span>Chênh cự ly <b className="numeric">{formatMeters(row?.distanceDifference)} m</b></span><span>Cự ly trạm <b className="numeric">{formatMeters(row?.distance)} m</b></span></div>}
+            <label className="field-label"><span>Ghi chú trạm</span><input aria-label="Ghi chú trạm" placeholder="Vị trí, thời tiết, điều kiện đo…" value={station.note || ''} onChange={(event) => update('note', event.target.value)} /></label>
+          </details>
         </div>
-        <div className="point-entry">
-          <span>Điểm tới</span>
-          <PointCombobox
-            key={station.id}
-            ariaLabel="Điểm tới"
-            options={availablePoints}
-            scopeKey={book.id}
-            placeholder={autoName}
-            value={station.point}
-            onValueChange={(value) => updateStation(run, station.id, 'point', value)}
-          />
-        </div>
-        <div className="point-guidance">
-          <b>{pointTypeLabel(pointType)}</b>
-          <small>{pointType === POINT_TYPE_SIDE ? `Giữ nguyên mia sau tại ${row?.fromName || run.startPoint || 'điểm gốc'} · không tham gia bình sai` : `Sau khi lưu, ${displayPoint || 'điểm tới'} trở thành điểm đặt mia sau`}</small>
-        </div>
+        <aside className="measure-aside">
+          <div className="quality-card" data-level={level} role={checksRequested && inspection.errors.length ? 'alert' : undefined}>
+            <div className="card-title">{level === 'error' || level === 'warning' ? <TriangleAlert /> : <ShieldCheck />}<h3>{level === 'error' ? 'Cần bổ sung trước khi lưu' : level === 'warning' ? 'Kiểm tra lại số đọc' : level === 'ready' ? 'Sẵn sàng lưu trạm' : 'Kiểm tra trước khi lưu'}</h3></div>
+            {visibleIssues.length ? <ul>{visibleIssues.map((item, i) => <li key={i}>{item.message}</li>)}</ul> : <p>{inspection.ready ? 'Đã kiểm tra trường bắt buộc và ngưỡng nhắc nhập liệu.' : 'Nhập BS và FS. Hệ thống sẽ nhắc khi thiếu số đọc hoặc có giá trị bất thường.'}</p>}
+            <small>Trị số mét hiển thị 3 số lẻ · Δh làm tròn mm.</small>
+          </div>
+          <ElevationProfile solved={solved} />
+          <div className="field-settings card">
+            <span className="section-kicker">NHỊP ĐO NHANH</span><p><b>BS → FS → Lưu trạm</b><br />Phím Tiếp chuyển ô nhập. Tên điểm được điền khi lưu; mốc gốc được nối tự động.</p>
+          </div>
+        </aside>
       </div>
-      <div className="live" aria-label="Kết quả tính tức thời" aria-live="polite">
-        <div><span>Chênh cao · Δh</span><b className="numeric">{formatSignedMillimeters(row?.delta)} mm</b></div>
-        <div><span>Cao độ · H({displayPoint || '?'})</span><b className="numeric">{formatElevation(row?.elevation)} m</b></div>
-        <div><span>{run.mode === 'single' ? <>Cao độ tia ngắm (H<sub>tia</sub>)</> : 'Cự ly trạm'}</span><b className="numeric">{run.mode === 'single' ? `${formatElevation(row?.hi)} m` : `${formatMeters(row?.distance)} m`}</b></div>
-      </div>
-      <div className="field-actions">
-        <button className="step-button" aria-label="Trạm trước" onClick={() => setIndex(Math.max(0, index - 1))} disabled={index === 0}><ChevronLeft /></button>
-        <button className="primary finish" onClick={finish}><Check />Hoàn tất trạm</button>
-        <button className="step-button" aria-label="Trạm tiếp theo" onClick={() => setIndex(Math.min(run.stations.length - 1, index + 1))} disabled={index === run.stations.length - 1}><ChevronRight /></button>
+      <div className={`capture-dock${run.startPoint ? '' : ' is-locked'}`} aria-hidden={!run.startPoint}>
+        <div className="capture-dock-summary"><span>Điểm tới <b className="numeric">{displayPoint}</b></span><strong className="numeric">{formatElevation(row?.elevation)} m</strong></div>
+        <div className="field-actions"><button className="step-button" aria-label="Trạm trước" onClick={() => setIndex(Math.max(0, index - 1))} disabled={index === 0}><ChevronLeft /></button><button type="button" className="primary finish" onClick={finish}><Check />{station.committedAt ? 'Cập nhật trạm' : 'Lưu & tiếp tục'}</button><button className="step-button" aria-label="Trạm tiếp theo" onClick={() => setIndex(Math.min(run.stations.length - 1, index + 1))} disabled={index === run.stations.length - 1}><ChevronRight /></button></div>
       </div>
     </section>
   );
 }
-
 function Staff({ title, prefix, station, row, update }) {
   return (
     <div className={`reading reading-${prefix}`}>
       <div className="reading-title"><span>{title}<small>Ba chỉ · mét</small></span><em>{prefix.toUpperCase()} · m</em></div>
       <div className="threegrid">
         {[['Upper', 'Trên'], ['Middle', 'Giữa'], ['Lower', 'Dưới']].map(([suffix, label]) => (
-          <label key={suffix}>{label}<MeterInput staffReading aria-label={`${title} chỉ ${label.toLowerCase()} theo mét`} enterKeyHint="next" value={station[`${prefix}${suffix}`]} onValueChange={(value) => update(`${prefix}${suffix}`, value)} /></label>
+          <label key={suffix}>{label}<MeterInput data-reading={`${prefix}${suffix}`} staffReading aria-label={`${title} chỉ ${label.toLowerCase()} theo mét`} enterKeyHint="next" value={station[`${prefix}${suffix}`]} onValueChange={(value) => update(`${prefix}${suffix}`, value)} onFocus={(event) => event.target.select()} /></label>
         ))}
       </div>
       <div className="staffmeta">
@@ -931,48 +895,64 @@ function SidePointTable({ points = [] }) {
   );
 }
 
-function Files({ book, books, updateBook, setBook, setBooks, newBook, save, saveAs, rename, exportExcel, exportPdf, exporting, fileRef, importExcel, availablePoints }) {
-  const persist = (next) => { setBooks(next); localStorage.setItem(STORAGE_KEYS.books, JSON.stringify(next)); };
+function Files({ book, books, library, updateBook, newBook, save, saveAs, exportExcel, exportPdf, backupAll, exporting, fileRef, importFile, availablePoints, setDialog }) {
+  const [query, setQuery] = useState('');
+  const filtered = books.filter((item) => item.name.toLocaleLowerCase('vi').includes(query.toLocaleLowerCase('vi')));
+  const totalStations = books.reduce((count, item) => count + item.runs.reduce((sum, run) => sum + run.stations.filter((station) => station.point).length, 0), 0);
   const fileActions = [
-    { label: 'Sổ mới', hint: 'Tạo bản đo trống', Icon: FilePlus2, onClick: newBook },
-    { label: 'Lưu sổ', hint: 'Lưu vào thiết bị', Icon: Save, onClick: save, primary: true },
-    { label: 'Lưu bản sao', hint: 'Tạo phiên bản mới', Icon: BookOpen, onClick: saveAs },
-    { label: 'Đổi tên', hint: 'Sửa tên sổ hiện tại', Icon: PencilLine, onClick: rename },
-    { label: 'Xuất Excel', hint: exporting === 'xlsx' ? 'Đang tạo tệp...' : 'Bảng số liệu .xlsx', Icon: Download, onClick: exportExcel, disabled: Boolean(exporting) },
-    { label: 'Xuất PDF', hint: exporting === 'pdf' ? 'Đang tạo tệp...' : 'Báo cáo kỹ thuật .pdf', Icon: FileText, onClick: exportPdf, disabled: Boolean(exporting) },
-    { label: 'Nhập Excel', hint: 'Khôi phục từ .xlsx', Icon: Upload, onClick: () => fileRef.current.click() },
+    { label: 'Sổ mới', hint: 'Cất sổ hiện tại, bắt đầu mới', Icon: FilePlus2, onClick: newBook, primary: true },
+    { label: 'Nhập sổ', hint: 'Excel hoặc sao lưu JSON', Icon: Upload, onClick: () => fileRef.current.click() },
+    { label: 'Xuất Excel', hint: 'Số liệu & dữ liệu gốc', Icon: FileText, onClick: exportExcel },
+    { label: 'Xuất PDF', hint: 'Báo cáo để đối chiếu', Icon: Download, onClick: exportPdf },
+    { label: 'Lưu bản sao', hint: 'Giữ thêm một phiên bản', Icon: Copy, onClick: saveAs },
+    { label: 'Lưu ngay', hint: 'Ghi vào thiết bị', Icon: Save, onClick: save },
   ];
+  const activeHistory = library.checkpoints.filter((entry) => entry.book.id === book.id);
   return (
     <section className="files-shell">
-      <SectionHeading Icon={FolderOpen} eyebrow="Dữ liệu hiện trường" title="Sổ & tệp" description="Lưu phiên làm việc, quản lý mốc và trao đổi báo cáo Excel/PDF." />
+      <SectionHeading Icon={FolderOpen} eyebrow="Thư viện hiện trường" title="Sổ đo của bạn" description="Tự lưu trên thiết bị. Nhập sổ mới luôn giữ nguyên các sổ đã có." />
+      <div className="data-health"><div><span>Sổ trong thư viện</span><b className="numeric">{books.length}</b></div><div><span>Điểm đã ghi</span><b className="numeric">{totalStations}</b></div><div><span>Có thể khôi phục</span><b className="numeric">{library.trash.length}</b></div></div>
+      <div className="card backup-card"><ShieldCheck /><div><h3>Mang theo một bản sao an toàn.</h3><p>Sao lưu toàn bộ sổ vào Tệp, Drive hoặc máy tính. Dữ liệu cục bộ có thể mất nếu gỡ ứng dụng hoặc xóa dữ liệu trình duyệt.</p></div><button className="primary" onClick={backupAll} disabled={Boolean(exporting)}><Download />Sao lưu tất cả</button></div>
       <div className="card current-book">
-        <div className="card-heading"><span>Sổ hiện tại</span><h3>{book.name}</h3></div>
-        <div className="file-actions">
-          {fileActions.map(({ label, hint, Icon, onClick, primary, disabled }) => <button key={label} className={primary ? 'action-tile primary-tile' : 'action-tile'} onClick={onClick} disabled={disabled} aria-busy={disabled && exporting ? 'true' : undefined}><span className="action-icon" aria-hidden="true"><Icon /></span><span><b>{label}</b><small>{hint}</small></span></button>)}
-        </div>
-        <input ref={fileRef} hidden type="file" accept=".xlsx,.xls" onChange={(event) => { const file = event.target.files?.[0]; if (file) importExcel(file); event.target.value = ''; }} />
+        <div className="card-heading"><span>Sổ đang mở</span><h3>{book.name}</h3></div>
+        <div className="file-actions">{fileActions.map(({ label, hint, Icon, onClick, primary }) => <button key={label} className={primary ? 'action-tile primary-tile' : 'action-tile'} onClick={onClick} disabled={Boolean(exporting)}><span className="action-icon" aria-hidden="true"><Icon /></span><span><b>{label}</b><small>{hint}</small></span></button>)}</div>
+        {exporting && <p role="status" className="note">Đang xử lý tệp…</p>}
+        <input ref={fileRef} aria-label="Chọn tệp nhập sổ" hidden type="file" accept=".xlsx,.xls,.json" onChange={(event) => { const file = event.target.files?.[0]; if (file) importFile(file); event.target.value = ''; }} />
       </div>
       <div className="card">
-        <div className="card-title"><div className="card-heading"><span>Cao độ gốc</span><h3>Mốc chuẩn</h3></div><button className="compact-button" onClick={() => updateBook((previous) => ({ ...previous, benchmarks: [...previous.benchmarks, createBenchmark()] }))}><Plus />Thêm mốc</button></div>
+        <div className="card-title"><div className="card-heading"><span>Điểm gốc của sổ</span><h3>Mốc chuẩn</h3></div><button className="compact-button" onClick={() => updateBook((previous) => ({ ...previous, benchmarks: [...previous.benchmarks, createBenchmark()] }))}><Plus />Thêm mốc</button></div>
         <div className="bench-labels" aria-hidden="true"><span>Tên mốc</span><span>Cao độ H (m)</span></div>
-        {book.benchmarks.map((benchmark) => (
-          <div className="benchrow" key={benchmark.id}>
-            <PointCombobox ariaLabel="Tên mốc" className="benchmark-point-combobox" options={availablePoints} scopeKey={book.id} value={benchmark.name} onValueChange={(value) => updateBook((previous) => ({ ...previous, benchmarks: previous.benchmarks.map((item) => item.id === benchmark.id ? { ...item, name: value } : item) }))} />
-            <label><BenchmarkElevationInput ariaLabel={`Cao độ mốc ${benchmark.name || ''} theo mét`} value={benchmark.elevation} onValueChange={(value) => updateBook((previous) => ({ ...previous, benchmarks: previous.benchmarks.map((item) => item.id === benchmark.id ? { ...item, elevation: value } : item) }))} /><span>m</span></label>
-            <button className="danger icon-danger" aria-label={`Xóa mốc ${benchmark.name}`} onClick={() => updateBook((previous) => ({ ...previous, benchmarks: previous.benchmarks.filter((item) => item.id !== benchmark.id) }))}><Trash2 /></button>
-          </div>
-        ))}
+        {book.benchmarks.map((benchmark) => <div className="benchrow" key={benchmark.id}>
+          <PointCombobox ariaLabel="Tên mốc" className="benchmark-point-combobox" options={availablePoints} scopeKey={book.id} value={benchmark.name} onValueChange={(value) => updateBook((previous) => ({ ...previous, benchmarks: previous.benchmarks.map((item) => item.id === benchmark.id ? { ...item, name: value } : item) }))} />
+          <label><BenchmarkElevationInput ariaLabel={'Cao độ mốc ' + (benchmark.name || '') + ' theo mét'} value={benchmark.elevation} onValueChange={(value) => updateBook((previous) => ({ ...previous, benchmarks: previous.benchmarks.map((item) => item.id === benchmark.id ? { ...item, elevation: value } : item) }))} /><span>m</span></label>
+          <button className="danger icon-danger" aria-label={'Xóa mốc ' + benchmark.name} onClick={() => setDialog({ title: 'Xóa mốc ' + (benchmark.name || 'trống') + '?', description: 'Các tuyến dùng mốc này có thể không còn tính được cao độ. Bản trước khi xóa được giữ trong lịch sử khôi phục.', confirmLabel: 'Xóa mốc', onConfirm: () => {
+            updateBook((previous) => ({ ...previous, benchmarks: previous.benchmarks.filter((item) => item.id !== benchmark.id) }), { checkpoint: 'Xóa mốc chuẩn' }); setDialog(null);
+          } })}><Trash2 /></button>
+        </div>)}
+        {!book.benchmarks.length && <p className="empty">Thêm mốc có cao độ biết trước để tính cao độ của tuyến.</p>}
       </div>
       <div className="card">
-        <div className="card-heading"><span>Thư viện cục bộ</span><h3>Sổ đã lưu</h3></div>
-        {books.length ? books.map((saved) => (
-          <div className="saved" key={saved.id}>
-            <span className="saved-icon" aria-hidden="true"><BookOpen /></span>
-            <div><b>{saved.name}</b><small>{new Date(saved.updatedAt).toLocaleString('vi-VN')}</small><small className="numeric">{saved.runs.length} lượt · {saved.runs.reduce((sum, run) => sum + run.stations.length, 0)} trạm</small></div>
-            <div className="saved-actions"><button onClick={() => setBook(structuredClone(saved))}>Mở</button><button className="danger icon-danger" aria-label={`Xóa ${saved.name}`} onClick={() => { if (confirm('Xóa sổ đã lưu này?')) persist(books.filter((item) => item.id !== saved.id)); }}><Trash2 /></button></div>
-          </div>
-        )) : <p className="empty">Chưa có sổ đã lưu.</p>}
+        <div className="card-title"><div className="card-heading"><span>Tất cả sổ đo</span><h3>Thư viện thiết bị</h3></div><span className="session-pill">{books.length} sổ</span></div>
+        <label className="library-tools"><Search /><input type="search" aria-label="Tìm sổ" placeholder="Tìm theo tên sổ…" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+        <div className="saved-list">{filtered.map((saved) => <div className="saved" key={saved.id} data-active={saved.id === book.id}>
+          <span className="saved-icon" aria-hidden="true"><BookOpen /></span><div><b>{saved.name}</b><small>{saved.id === book.id ? 'Đang mở · ' : ''}{new Date(saved.updatedAt).toLocaleString('vi-VN')}</small><small className="numeric">{saved.runs.length} lượt · {saved.runs.reduce((sum, run) => sum + run.stations.filter((station) => station.point).length, 0)} điểm</small></div>
+          <div className="saved-actions"><button onClick={() => library.openBook(saved)} disabled={saved.id === book.id}>Mở</button><button className="danger icon-danger" aria-label={'Chuyển ' + saved.name + ' vào thùng rác'} onClick={() => setDialog({ title: 'Chuyển sổ vào thùng rác?', description: saved.name + ' có thể khôi phục từ mục Thùng rác.', confirmLabel: 'Chuyển vào thùng rác', onConfirm: () => { library.deleteBook(saved.id); setDialog(null); } })}><Trash2 /></button></div>
+        </div>)}</div>
+        {!filtered.length && <p className="empty">Không có sổ khớp tên đang tìm.</p>}
       </div>
+      <details className="card"><summary><ArchiveRestore />Lịch sử khôi phục · {activeHistory.length} bản</summary>
+        <p className="note">Giữ các mốc lưu gần nhất. Khôi phục tạo một bản riêng để đối chiếu với sổ hiện tại.</p>
+        <div className="history-list">{activeHistory.map((entry) => <div className="saved" key={entry.id}><div><b>{entry.reason}</b><small>{new Date(entry.createdAt).toLocaleString('vi-VN')}</small></div><button onClick={() => library.restoreCheckpoint(entry.id)}>Khôi phục bản</button></div>)}</div>
+        {!activeHistory.length && <p className="empty">Lưu trạm hoặc chuyển sổ để tạo mốc khôi phục.</p>}
+      </details>
+      <details className="card"><summary><Trash2 />Thùng rác · {library.trash.length} sổ</summary><div className="trash-list">
+        {library.trash.map((entry) => <div className="saved" key={entry.id}><div><b>{entry.book.name}</b><small>{new Date(entry.deletedAt).toLocaleString('vi-VN')}</small></div><button onClick={() => library.restoreDeleted(entry.id)}>Khôi phục sổ</button></div>)}
+        {!library.trash.length && <p className="empty">Chưa có sổ nào trong thùng rác.</p>}
+      </div></details>
+      <details className="card field-settings"><summary><Settings2 />Ngưỡng nhắc nhập liệu</summary>
+        <p className="note">Các ngưỡng do người đo đặt để phát hiện nhập nhầm; không phải tiêu chuẩn nghiệm thu. Nhập 0 để tắt từng nhắc.</p>
+        {[[ 'staffLimit', 'Số đọc mia lớn hơn', 'm' ], [ 'deltaLimit', '|Δh| lớn hơn', 'm' ], [ 'middleErrorLimit', 'Sai số chỉ giữa lớn hơn', 'mm' ]].map(([key, label, unit]) => <label className="setting-row" key={key}><span>{label} <small>({unit})</small></span>{key === 'middleErrorLimit' ? <input className="numeric" inputMode="decimal" aria-label={label + ' ' + unit} value={book.settings[key] ?? FIELD_DEFAULTS[key]} onChange={(event) => updateBook((previous) => ({ ...previous, settings: { ...previous.settings, [key]: event.target.value } }))} /> : <MeterInput aria-label={label + ' ' + unit} value={book.settings[key] ?? FIELD_DEFAULTS[key]} onValueChange={(value) => updateBook((previous) => ({ ...previous, settings: { ...previous.settings, [key]: value } }))} />}</label>)}
+      </details>
     </section>
   );
 }

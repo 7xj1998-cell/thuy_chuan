@@ -2,6 +2,14 @@
 
 Ứng dụng ghi, tính và bình sai cao độ cho nhiều lượt đo độc lập, dùng chung mã nguồn cho web, iPhone và Android.
 
+## Phiên bản 2.5.0
+
+- Màn hình Đo ưu tiên quy trình **1 chỉ**: nhập BS → FS → lưu; hỗ trợ chuyển nhanh sang 3 chỉ khi cần.
+- Thêm bước khởi tạo mốc gốc rõ ràng, tự động nối điểm chuyền và gợi ý tên tia phụ, giảm nhập lặp ngoài hiện trường.
+- Kiểm tra trước khi lưu với cảnh báo thiếu số đọc, số âm, trùng điểm và trị đo bất thường; cho phép xác nhận cảnh báo có chủ đích.
+- Lưu sổ theo giao dịch, checkpoint và thùng rác; có phục hồi sổ/phiên bản, sao lưu toàn bộ thư viện và nhập JSON/XLSX an toàn.
+- Làm mới giao diện mobile-first: vùng chạm lớn, safe-area, bàn phím số, đồ thị tuyến và thanh lưu nhanh cố định.
+
 ## Phiên bản 2.4.1
 
 - Loại bỏ hoàn toàn các điểm mẫu `DG3`, `DG4` khỏi sổ mới và nguồn gợi ý Autocomplete.

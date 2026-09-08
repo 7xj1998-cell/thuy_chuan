@@ -417,3 +417,19 @@ export async function exportPdfReport(book, solvedRuns, desiredName) {
   }
   return filename;
 }
+
+export async function exportLibraryBackup(contents) {
+  const filename = `Thuy-chuan_backup_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+  if (Capacitor.isNativePlatform()) {
+    const data = arrayBufferToBase64(new TextEncoder().encode(contents).buffer);
+    const result = await Filesystem.writeFile({ path: filename, data, directory: Directory.Cache });
+    await Share.share({ title: 'Sao lưu thư viện thủy chuẩn', url: result.uri, dialogTitle: 'Lưu tệp sao lưu vào Tệp hoặc Drive' });
+  } else {
+    const url = URL.createObjectURL(new Blob([contents], { type: 'application/json;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url; link.download = filename;
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+  return filename;
+}
