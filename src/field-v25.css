@@ -34,6 +34,22 @@
   color: var(--ink);
   font-size: 14px;
   line-height: 1.5;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* iOS long-press should never expose Copy/Look Up on controls or read-only data.
+   Keep selection enabled only where the surveyor is actually entering text. */
+.app-v25 :is(button, summary, [role="button"], [role="option"], .numeric, .card, .reading, .result-strip, .quality-card, .profile-card, .capture-dock, .bottom) {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.app-v25 :is(input, textarea, select, [contenteditable="true"]) {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
 }
 
 .app-v25 :is(button, input, select, summary) { touch-action: manipulation; }
