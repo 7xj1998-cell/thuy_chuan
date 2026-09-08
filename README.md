@@ -2,6 +2,10 @@
 
 Ứng dụng ghi, tính và bình sai cao độ cho nhiều lượt đo độc lập, dùng chung mã nguồn cho web, iPhone và Android.
 
+## Phiên bản 2.5.2
+
+- Tinh gọn màn hình Đo: bỏ chú thích “Kiểm tra trước khi lưu” và “Nhịp đo nhanh”, giữ giao diện tập trung vào số đọc và nút lưu.
+
 ## Phiên bản 2.5.1
 
 - Vô hiệu hóa chọn văn bản và menu **Copy / Look Up / Translate** khi nhấn giữ trên nút, số liệu, thẻ và thanh điều khiển iPhone; các ô nhập vẫn cho phép chọn/sửa bình thường.

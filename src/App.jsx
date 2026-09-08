@@ -621,8 +621,6 @@ function Measure({ book, availablePoints, run, solved, index, setIndex, updateSt
   const autoName = suggestTargetPointName(book, run.id, index, pointType);
   const displayPoint = station.point || autoName;
   const inspection = inspectStation(book, run, index, autoName);
-  const visibleIssues = checksRequested ? [...inspection.errors, ...inspection.warnings] : inspection.ready ? inspection.warnings : [];
-  const level = checksRequested && inspection.errors.length ? 'error' : visibleIssues.length ? 'warning' : inspection.ready ? 'ready' : 'pending';
   const savedCount = solved.rows.filter((item) => item.point && item.delta !== null).length;
   const update = (field, value) => updateStation(run, station.id, field, value);
 
@@ -674,15 +672,7 @@ function Measure({ book, availablePoints, run, solved, index, setIndex, updateSt
           </details>
         </div>
         <aside className="measure-aside">
-          <div className="quality-card" data-level={level} role={checksRequested && inspection.errors.length ? 'alert' : undefined}>
-            <div className="card-title">{level === 'error' || level === 'warning' ? <TriangleAlert /> : <ShieldCheck />}<h3>{level === 'error' ? 'Cần bổ sung trước khi lưu' : level === 'warning' ? 'Kiểm tra lại số đọc' : level === 'ready' ? 'Sẵn sàng lưu trạm' : 'Kiểm tra trước khi lưu'}</h3></div>
-            {visibleIssues.length ? <ul>{visibleIssues.map((item, i) => <li key={i}>{item.message}</li>)}</ul> : <p>{inspection.ready ? 'Đã kiểm tra trường bắt buộc và ngưỡng nhắc nhập liệu.' : 'Nhập BS và FS. Hệ thống sẽ nhắc khi thiếu số đọc hoặc có giá trị bất thường.'}</p>}
-            <small>Trị số mét hiển thị 3 số lẻ · Δh làm tròn mm.</small>
-          </div>
           <ElevationProfile solved={solved} />
-          <div className="field-settings card">
-            <span className="section-kicker">NHỊP ĐO NHANH</span><p><b>BS → FS → Lưu trạm</b><br />Phím Tiếp chuyển ô nhập. Tên điểm được điền khi lưu; mốc gốc được nối tự động.</p>
-          </div>
         </aside>
       </div>
       <div className={`capture-dock${run.startPoint ? '' : ' is-locked'}`} aria-hidden={!run.startPoint}>
