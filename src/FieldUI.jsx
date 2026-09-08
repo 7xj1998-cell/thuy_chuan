@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef } from 'react';
-import { X, Activity } from 'lucide-react';
+import { X, Activity, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { formatElevation } from './units';
 
 export function ConfirmDialog({ title, description, messages = [], confirmLabel = 'Xác nhận', onConfirm, onClose }) {
@@ -27,6 +27,16 @@ export function ConfirmDialog({ title, description, messages = [], confirmLabel 
       {messages.length > 0 && <ul>{messages.map((message, index) => <li key={index}>{message}</li>)}</ul>}
       <div className="quality-actions"><button onClick={onClose}>Quay lại</button><button className="primary" onClick={onConfirm}>{confirmLabel}</button></div>
     </section>
+  </div>;
+}
+
+export function QualityCard({ errors = [], warnings = [] }) {
+  const level = errors.length ? 'error' : warnings.length ? 'warning' : 'pending';
+  const issues = errors.length ? errors : warnings;
+  if (!issues.length) return null;
+  return <div className="quality-card" data-level={level} role={level === 'error' ? 'alert' : 'status'}>
+    <div className="card-title">{level === 'error' ? <TriangleAlert aria-hidden="true" /> : <ShieldCheck aria-hidden="true" />}<h3>{level === 'error' ? 'Chưa thể lưu trạm' : 'Cần xác nhận trước khi lưu'}</h3></div>
+    <ul>{issues.map((item, index) => <li key={`${item.field || 'issue'}-${index}`}>{item.message}</li>)}</ul>
   </div>;
 }
 
@@ -68,7 +78,7 @@ export function ElevationProfile({ solved }) {
     <svg viewBox="0 0 600 140" role="img" aria-label={`Cao độ sơ bộ từ ${formatElevation(min)} đến ${formatElevation(max)} mét. Trục ngang theo thứ tự điểm, không theo khoảng cách.`}>
       {[32, 68, 104].map((line) => <line key={line} x1="24" x2="576" y1={line} y2={line} stroke="currentColor" opacity=".12" strokeDasharray="3 5" />)}
       {segments.filter((segment) => segment.length > 1).map((segment, index) => <polyline key={index} points={segment.join(' ')} fill="none" stroke="#087a68" strokeWidth="2.5" strokeLinejoin="round" />)}
-      {rows.map((row, index) => typeof row.elevation === 'number' && Number.isFinite(row.elevation) && <g key={index}><circle cx={x(index)} cy={y(row.elevation)} r="4" fill="#fff" stroke="#087a68" strokeWidth="2" /><title>{row.name}: {formatElevation(row.elevation)} m</title>{(index === 0 || index === rows.length - 1 || rows.length <= 7) && <text x={x(index)} y="129" textAnchor={index === 0 ? 'start' : index === rows.length - 1 ? 'end' : 'middle'} fill="#334155" fontSize="11">{row.name?.length > 16 ? row.name.slice(0, 14) + '…' : row.name}</text>}</g>)}
+      {rows.map((row, index) => typeof row.elevation === 'number' && Number.isFinite(row.elevation) && <g key={index}><circle cx={x(index)} cy={y(row.elevation)} r="4" fill="#fff" stroke="#087a68" strokeWidth="2" /><title>{`${row.name}: ${formatElevation(row.elevation)} m`}</title>{(index === 0 || index === rows.length - 1 || rows.length <= 7) && <text x={x(index)} y="129" textAnchor={index === 0 ? 'start' : index === rows.length - 1 ? 'end' : 'middle'} fill="#334155" fontSize="11">{row.name?.length > 16 ? row.name.slice(0, 14) + '…' : row.name}</text>}</g>)}
     </svg>
     <div className="profile-caption"><span>Cao độ sơ bộ · thứ tự điểm</span><b className="numeric">{formatElevation(min)} — {formatElevation(max)} m</b></div>
   </div>;

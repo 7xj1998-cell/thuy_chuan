@@ -50,7 +50,7 @@ import {
 import { exportExcelReport, exportPdfReport, exportLibraryBackup } from './report';
 import { useNotebookLibrary } from './useNotebookLibrary';
 import { inspectStation, normalizeStationDraft, FIELD_DEFAULTS } from './fieldChecks';
-import { ConfirmDialog, ElevationProfile, SurveyIllustration } from './FieldUI';
+import { ConfirmDialog, ElevationProfile, QualityCard, SurveyIllustration } from './FieldUI';
 import { OPEN_ROUTE_WARNING } from './terminology';
 import {
   canonicalBenchmarkElevationDraft,
@@ -74,8 +74,15 @@ const NAV_ITEMS = [
 ];
 
 const SWIPE_REVEAL_PX = 80;
+const OUTDOOR_STORAGE_KEY = 'so-thuy-chuan.outdoor-mode.v1';
 
-function MeterInput({ value, onValueChange, staffReading = false, sanitizer = sanitizeMeterInput, normalizer, className = '', placeholder = '0,000', onKeyDown, ...props }) {
+function pulse(pattern) {
+  try {
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(pattern);
+  } catch { /* haptics are optional on iOS/WebView */ }
+}
+
+function MeterInput({ value, onValueChange, staffReading = false, sanitizer = sanitizeMeterInput, normalizer, className = '', placeholder = '0,000', onKeyDown, onComplete, ...props }) {
   const normalize = normalizer || (staffReading ? normalizeStaffInput : normalizeMeterInput);
   return (
     <input
@@ -93,7 +100,10 @@ function MeterInput({ value, onValueChange, staffReading = false, sanitizer = sa
           const fields = Array.from(event.currentTarget.closest('.measure-shell')?.querySelectorAll('[data-reading]') || []);
           const next = fields[fields.indexOf(event.currentTarget) + 1];
           if (next) next.focus();
-          else event.currentTarget.blur();
+          else {
+            event.currentTarget.blur();
+            if (onComplete) window.setTimeout(onComplete, 0);
+          }
         }
       }}
     />
@@ -312,6 +322,9 @@ export default function App() {
   const [checksRequested, setChecksRequested] = useState(false);
   const [dialog, setDialog] = useState(null);
   const [pendingImport, setPendingImport] = useState(null);
+  const [outdoor, setOutdoor] = useState(() => {
+    try { return localStorage.getItem(OUTDOOR_STORAGE_KEY) === 'true'; } catch { return false; }
+  });
   const fileRef = useRef(null);
   const measureRef = useRef(null);
   const finishLock = useRef(false);
@@ -343,6 +356,11 @@ export default function App() {
     const timer = setTimeout(() => setToast(null), toast.action ? 6000 : 2400);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    document.documentElement.dataset.outdoor = outdoor ? 'true' : 'false';
+    try { localStorage.setItem(OUTDOOR_STORAGE_KEY, String(outdoor)); } catch { /* preference is optional */ }
+  }, [outdoor]);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -395,7 +413,7 @@ export default function App() {
     if (!last.point && !READING_FIELDS.some((field) => String(last[field] ?? '').trim())) {
       setStationIndex(activeRun.stations.length - 1);
     } else {
-      if (!updateRun(activeRun.id, { stations: [...activeRun.stations, createStation()] })) return;
+      if (!updateRun(activeRun.id, { stations: [...activeRun.stations, createStation('', last?.pointType || POINT_TYPE_TURNING)] })) return;
       setStationIndex(activeRun.stations.length);
     }
     setTab('measure');
@@ -409,7 +427,8 @@ export default function App() {
     const inspection = inspectStation(book, activeRun, stationIndex, autoName);
     setChecksRequested(true);
     if (inspection.errors.length) {
-      measureRef.current?.querySelector('.quality-card')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      pulse([15, 45, 15]);
+      requestAnimationFrame(() => measureRef.current?.querySelector('.quality-card')?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
       return;
     }
     if (inspection.warnings.length && !acknowledged) {
@@ -431,12 +450,13 @@ export default function App() {
       } : item),
     };
     const result = finalizeStation(normalized, stationIndex, autoName);
-    if (!result.committed) return;
+    if (!result.committed) { pulse([15, 45, 15]); return; }
     finishLock.current = true;
     const saved = updateBook((previous) => ({
       ...previous, runs: previous.runs.map((run) => run.id === activeRun.id ? { ...run, stations: result.stations } : run),
     }), { checkpoint: 'Hoàn tất trạm' });
-    if (!saved) { finishLock.current = false; return; }
+    if (!saved) { finishLock.current = false; pulse([15, 45, 15]); return; }
+    pulse(15);
     setStationIndex(result.nextIndex);
     setToast({ text: 'Đã lưu ' + result.point + ' · ' + (pointType === POINT_TYPE_SIDE ? 'Giữ nguyên mia sau' : 'Sẵn sàng trạm tiếp theo') });
     requestAnimationFrame(() => {
@@ -532,10 +552,10 @@ export default function App() {
   const saveLabel = library.saveState === 'error' ? 'Chưa lưu được' : library.saveState === 'unsaved' ? 'Đang lưu' : 'Đã lưu trên máy';
 
   return (
-    <div className="app-v3 app-v25">
+    <div className="app-v3 app-v25" data-outdoor={outdoor ? 'true' : 'false'}>
       <header className="workspace-header">
         <div className="brand-mark" aria-hidden="true"><Crosshair /></div>
-        <div className="brand-copy"><div className="eyebrow">THỦY CHUẨN <span className="version-badge">2.5</span></div><h1>{book.name}</h1></div>
+        <div className="brand-copy"><div className="eyebrow">THỦY CHUẨN <span className="version-badge">2.6</span></div><h1>{book.name}</h1></div>
         <div className="workspace-status"><button className="iconbtn" onClick={renameBook} aria-label="Đổi tên sổ"><PencilLine /></button></div>
       </header>
       <main id="main-content" data-tab={tab}>
@@ -546,7 +566,7 @@ export default function App() {
         {tab === 'measure' && <div ref={measureRef}><Measure book={book} availablePoints={availablePoints} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} updateStation={updateStation} updateRun={updateRun} updateBook={updateBook} finish={() => finishStation()} changeMode={changeMode} checksRequested={checksRequested} /></div>}
         {tab === 'route' && <><ElevationProfile solved={activeSolved} /><Route run={activeRun} solved={activeSolved} settingsOpen={settingsOpen} setSettingsOpen={setSettingsOpen} updateRun={updateRun} addStation={addStation} edit={(index) => { setStationIndex(index); setTab('measure'); }} remove={deleteStation} duplicate={duplicateRun} deleteRun={deleteRun} availablePoints={availablePoints} pointScopeKey={book.id} /></>}
         {tab === 'result' && <Results book={book} solvedRuns={solvedRuns} updateBook={updateBook} />}
-        {tab === 'files' && <Files book={book} books={books} library={library} updateBook={updateBook} newBook={newBook} save={save} saveAs={saveAs} exportExcel={() => exportReport('xlsx')} exportPdf={() => exportReport('pdf')} backupAll={backupAll} exporting={exporting} fileRef={fileRef} importFile={importFile} availablePoints={availablePoints} setDialog={setDialog} />}
+        {tab === 'files' && <Files book={book} books={books} library={library} updateBook={updateBook} newBook={newBook} save={save} saveAs={saveAs} exportExcel={() => exportReport('xlsx')} exportPdf={() => exportReport('pdf')} backupAll={backupAll} exporting={exporting} fileRef={fileRef} importFile={importFile} availablePoints={availablePoints} setDialog={setDialog} outdoor={outdoor} setOutdoor={setOutdoor} />}
       </main>
       <nav className="bottom" aria-label="Điều hướng chính">
         {NAV_ITEMS.map(({ id, label, Icon }) => <button key={id} className={tab === id ? 'active' : ''} aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}><span className="nav-icon" aria-hidden="true"><Icon /></span><span className="nav-label">{label}</span></button>)}
@@ -644,11 +664,11 @@ function Measure({ book, availablePoints, run, solved, index, setIndex, updateSt
                   <MeterInput className="hero-input" data-reading="bs" staffReading aria-label="Số đọc mia sau BS theo mét" aria-invalid={checksRequested && inspection.errors.some((item) => item.field === 'bs')} enterKeyHint="next" value={station.bs} onValueChange={(value) => update('bs', value)} onFocus={(event) => event.target.select()} />
                   <small className="reading-example">Định dạng: <b className="numeric">2,000</b> m</small></div>
                 <div className="reading reading-fs"><div className="reading-title"><span>Mia trước<small>Số đọc theo mét</small></span><em>FS</em></div>
-                  <MeterInput className="hero-input" data-reading="fs" staffReading aria-label="Số đọc mia trước FS theo mét" aria-invalid={checksRequested && inspection.errors.some((item) => item.field === 'fs')} enterKeyHint="done" value={station.fs} onValueChange={(value) => update('fs', value)} onFocus={(event) => event.target.select()} />
+                  <MeterInput className="hero-input" data-reading="fs" staffReading aria-label="Số đọc mia trước FS theo mét" aria-invalid={checksRequested && inspection.errors.some((item) => item.field === 'fs')} enterKeyHint="done" value={station.fs} onValueChange={(value) => update('fs', value)} onComplete={finish} onFocus={(event) => event.target.select()} />
                   <small className="reading-example">Định dạng: <b className="numeric">1,585</b> m</small></div>
               </> : <>
                 <Staff title="Mia sau" prefix="bs" station={station} row={row} update={update} />
-                <Staff title="Mia trước" prefix="fs" station={station} row={row} update={update} />
+                <Staff title="Mia trước" prefix="fs" station={station} row={row} update={update} finish={finish} />
               </>}
             </div>
             <div className="result-strip" aria-label="Kết quả tính tức thời">
@@ -675,6 +695,7 @@ function Measure({ book, availablePoints, run, solved, index, setIndex, updateSt
           <ElevationProfile solved={solved} />
         </aside>
       </div>
+      <QualityCard errors={checksRequested ? inspection.errors : []} warnings={checksRequested ? inspection.warnings : []} />
       <div className={`capture-dock${run.startPoint ? '' : ' is-locked'}`} aria-hidden={!run.startPoint}>
         <div className="capture-dock-summary"><span>Điểm tới <b className="numeric">{displayPoint}</b></span><strong className="numeric">{formatElevation(row?.elevation)} m</strong></div>
         <div className="field-actions"><button className="step-button" aria-label="Trạm trước" onClick={() => setIndex(Math.max(0, index - 1))} disabled={index === 0}><ChevronLeft /></button><button type="button" className="primary finish" onClick={finish}><Check />{station.committedAt ? 'Cập nhật trạm' : 'Lưu & tiếp tục'}</button><button className="step-button" aria-label="Trạm tiếp theo" onClick={() => setIndex(Math.min(run.stations.length - 1, index + 1))} disabled={index === run.stations.length - 1}><ChevronRight /></button></div>
@@ -682,13 +703,13 @@ function Measure({ book, availablePoints, run, solved, index, setIndex, updateSt
     </section>
   );
 }
-function Staff({ title, prefix, station, row, update }) {
+function Staff({ title, prefix, station, row, update, finish }) {
   return (
     <div className={`reading reading-${prefix}`}>
       <div className="reading-title"><span>{title}<small>Ba chỉ · mét</small></span><em>{prefix.toUpperCase()} · m</em></div>
       <div className="threegrid">
         {[['Upper', 'Trên'], ['Middle', 'Giữa'], ['Lower', 'Dưới']].map(([suffix, label]) => (
-          <label key={suffix}>{label}<MeterInput data-reading={`${prefix}${suffix}`} staffReading aria-label={`${title} chỉ ${label.toLowerCase()} theo mét`} enterKeyHint="next" value={station[`${prefix}${suffix}`]} onValueChange={(value) => update(`${prefix}${suffix}`, value)} onFocus={(event) => event.target.select()} /></label>
+          <label key={suffix}>{label}<MeterInput data-reading={`${prefix}${suffix}`} staffReading aria-label={`${title} chỉ ${label.toLowerCase()} theo mét`} enterKeyHint="next" value={station[`${prefix}${suffix}`]} onValueChange={(value) => update(`${prefix}${suffix}`, value)} onComplete={prefix === 'fs' && suffix === 'Lower' ? finish : undefined} onFocus={(event) => event.target.select()} /></label>
         ))}
       </div>
       <div className="staffmeta">
@@ -792,6 +813,16 @@ function SwipeStation({ row, index, edit, remove }) {
         </span>
         <span className="route-chevron" aria-hidden="true"><ChevronRight /></span>
       </button>
+      <button
+        type="button"
+        className="route-delete-alt"
+        aria-label={`Xóa nhanh trạm ${index + 1}`}
+        title="Xóa nhanh"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => { event.stopPropagation(); setOpen(false); remove(index); }}
+      >
+        <Trash2 aria-hidden="true" />
+      </button>
     </div>
   );
 }
@@ -885,7 +916,7 @@ function SidePointTable({ points = [] }) {
   );
 }
 
-function Files({ book, books, library, updateBook, newBook, save, saveAs, exportExcel, exportPdf, backupAll, exporting, fileRef, importFile, availablePoints, setDialog }) {
+function Files({ book, books, library, updateBook, newBook, save, saveAs, exportExcel, exportPdf, backupAll, exporting, fileRef, importFile, availablePoints, setDialog, outdoor, setOutdoor }) {
   const [query, setQuery] = useState('');
   const filtered = books.filter((item) => item.name.toLocaleLowerCase('vi').includes(query.toLocaleLowerCase('vi')));
   const totalStations = books.reduce((count, item) => count + item.runs.reduce((sum, run) => sum + run.stations.filter((station) => station.point).length, 0), 0);
@@ -940,6 +971,7 @@ function Files({ book, books, library, updateBook, newBook, save, saveAs, export
         {!library.trash.length && <p className="empty">Chưa có sổ nào trong thùng rác.</p>}
       </div></details>
       <details className="card field-settings"><summary><Settings2 />Ngưỡng nhắc nhập liệu</summary>
+        <label className="setting-row outdoor-setting"><span><b>Chế độ ngoài trời</b><small>Tăng cỡ số và tương phản để đọc dưới nắng</small></span><input type="checkbox" aria-label="Bật chế độ ngoài trời" checked={outdoor} onChange={(event) => setOutdoor(event.target.checked)} /></label>
         <p className="note">Các ngưỡng do người đo đặt để phát hiện nhập nhầm; không phải tiêu chuẩn nghiệm thu. Nhập 0 để tắt từng nhắc.</p>
         {[[ 'staffLimit', 'Số đọc mia lớn hơn', 'm' ], [ 'deltaLimit', '|Δh| lớn hơn', 'm' ], [ 'middleErrorLimit', 'Sai số chỉ giữa lớn hơn', 'mm' ]].map(([key, label, unit]) => <label className="setting-row" key={key}><span>{label} <small>({unit})</small></span>{key === 'middleErrorLimit' ? <input className="numeric" inputMode="decimal" aria-label={label + ' ' + unit} value={book.settings[key] ?? FIELD_DEFAULTS[key]} onChange={(event) => updateBook((previous) => ({ ...previous, settings: { ...previous.settings, [key]: event.target.value } }))} /> : <MeterInput aria-label={label + ' ' + unit} value={book.settings[key] ?? FIELD_DEFAULTS[key]} onValueChange={(value) => updateBook((previous) => ({ ...previous, settings: { ...previous.settings, [key]: value } }))} />}</label>)}
       </details>

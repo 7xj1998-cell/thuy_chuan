@@ -2,6 +2,14 @@
 
 Ứng dụng ghi, tính và bình sai cao độ cho nhiều lượt đo độc lập, dùng chung mã nguồn cho web, iPhone và Android.
 
+## Phiên bản 2.6.0
+
+- QualityCard hiển thị lỗi thật khi lưu trạm bị chặn, tự cuộn tới thông báo và giữ aria-invalid trên ô sai.
+- Nhấn Enter/Done ở ô FS cuối tự động lưu trạm; bổ sung rung phản hồi khi lưu thành công hoặc thất bại.
+- Tuyến có nút xóa nhanh thay thế cho vuốt trái, tránh phụ thuộc cử chỉ khi đeo găng hoặc tay ướt.
+- Thêm Chế độ ngoài trời: tăng cỡ số, tương phản và lưu lựa chọn trên thiết bị.
+- Trạm mới kế thừa loại điểm ĐC/TP của trạm liền trước; CSS được gộp về một nguồn và dependency đã ghim version.
+
 ## Phiên bản 2.5.2
 
 - Tinh gọn màn hình Đo: bỏ chú thích “Kiểm tra trước khi lưu” và “Nhịp đo nhanh”, giữ giao diện tập trung vào số đọc và nút lưu.

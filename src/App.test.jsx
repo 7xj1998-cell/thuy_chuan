@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it } from 'vitest';
 import App from './App';
+import { QualityCard } from './FieldUI';
 
 describe('cấu trúc giao diện mobile', () => {
   beforeEach(() => {
@@ -62,5 +63,13 @@ describe('cấu trúc giao diện mobile', () => {
     expect(html).toContain('value="2,000"');
     expect(html).toContain('value="1,585"');
     expect(html).not.toContain('value="2000.000"');
+  });
+
+  it('hiện thông báo lỗi rõ ràng khi số đọc không hợp lệ trước lúc lưu', () => {
+    const html = renderToStaticMarkup(<QualityCard errors={[{ field: 'fs', message: 'Mia trước (FS) phải là số dương.' }]} />);
+    expect(html).toContain('class="quality-card"');
+    expect(html).toContain('data-level="error"');
+    expect(html).toContain('Chưa thể lưu trạm');
+    expect(html).toContain('Mia trước (FS) phải là số dương.');
   });
 });
