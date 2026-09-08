@@ -2,6 +2,14 @@
 
 Ứng dụng ghi, tính và bình sai cao độ cho nhiều lượt đo độc lập, dùng chung mã nguồn cho web, iPhone và Android.
 
+## Phiên bản 2.7.0
+
+- Mỗi lượt mới luôn mở bước chọn mốc xuất phát riêng; chỉ cho chọn mốc có tên và cao độ hợp lệ trong đúng sổ hiện tại, đồng thời chấp nhận cao độ thực `0,000 m`.
+- Có thể đổi mốc ngay trên màn hình Đo. Lượt đã có BS/FS yêu cầu xác nhận; toàn bộ số đọc, điểm, loại ĐC/TP và thứ tự trạm được giữ nguyên rồi kết quả tự tính lại.
+- Giao diện **Survey Field Console** dùng nền xám xanh, chữ navy, hành động teal và nét ngắm cyan; Kết quả/Sổ & tệp được chia theo nhóm nghiệp vụ, cài đặt lượt chuyển sang sheet gọn.
+- Bộ nhận diện **Level Mark** mới cho web, Android adaptive icon, iOS 1024 px và splash screen; SVG nguồn nằm trong thư mục `brand`.
+- Giữ schema v5 và quy ước mét/mm của v2.6.0; bổ sung kiểm thử độc lập cho tạo lượt, chọn/đổi mốc và bảo toàn số đo.
+
 ## Phiên bản 2.6.0
 
 - QualityCard hiển thị lỗi thật khi lưu trạm bị chặn, tự cuộn tới thông báo và giữ aria-invalid trên ô sai.

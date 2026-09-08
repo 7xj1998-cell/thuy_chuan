@@ -65,6 +65,40 @@ describe('cấu trúc giao diện mobile', () => {
     expect(html).not.toContain('value="2000.000"');
   });
 
+  it('hiển thị đúng bước chọn mốc cho lượt chưa có điểm đầu', () => {
+    localStorage.setItem('so-thuy-chuan.active-draft.v2', JSON.stringify({
+      schemaVersion: 5,
+      id: 'book-start',
+      name: 'Sổ chọn mốc',
+      benchmarks: [
+        { id: 'b1', name: 'DG1', elevation: '1,000' },
+        { id: 'b2', name: 'DG2', elevation: '0,000' },
+      ],
+      runs: [{ id: 'r1', name: 'Lượt 1', roundNumber: 1, startPoint: '', mode: 'single', stations: [{ id: 's1', point: '', pointType: 'turning' }] }],
+    }));
+    const html = renderToStaticMarkup(<App />);
+    expect(html).toContain('Chọn mốc xuất phát');
+    expect(html).toContain('Tìm nhanh theo tên mốc');
+    expect(html).toContain('DG1');
+    expect(html).toContain('DG2');
+    expect(html).toContain('0,000');
+    expect(html).not.toContain('Cao độ gốc theo mét');
+  });
+
+  it('hiển thị thẻ mốc và nút đổi mốc ngay trên màn hình Đo', () => {
+    localStorage.setItem('so-thuy-chuan.active-draft.v2', JSON.stringify({
+      schemaVersion: 5,
+      id: 'book-origin',
+      name: 'Sổ đang đo',
+      benchmarks: [{ id: 'b1', name: 'A1', elevation: '2,345' }],
+      runs: [{ id: 'r1', name: 'Lượt 1', roundNumber: 1, startPoint: 'A1', mode: 'single', stations: [{ id: 's1', point: '', pointType: 'turning' }] }],
+    }));
+    const html = renderToStaticMarkup(<App />);
+    expect(html).toContain('Mốc xuất phát');
+    expect(html).toContain('2,345');
+    expect(html).toContain('Đổi mốc');
+  });
+
   it('hiện thông báo lỗi rõ ràng khi số đọc không hợp lệ trước lúc lưu', () => {
     const html = renderToStaticMarkup(<QualityCard errors={[{ field: 'fs', message: 'Mia trước (FS) phải là số dương.' }]} />);
     expect(html).toContain('class="quality-card"');

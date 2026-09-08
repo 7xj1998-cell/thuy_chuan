@@ -1,0 +1,121 @@
+{
+  "localErrors": [],
+  "deployedErrors": [
+    "Failed to load resource: the server responded with a status of 404 ()"
+  ],
+  "responsive": [
+    {
+      "viewport": "360x800",
+      "width": 360,
+      "overflow": false,
+      "outdoor": "true",
+      "dock": {
+        "x": 0,
+        "y": 636,
+        "width": 360,
+        "height": 90,
+        "top": 636,
+        "right": 360,
+        "bottom": 726,
+        "left": 0
+      },
+      "tabs": {
+        "x": 0,
+        "y": 725,
+        "width": 360,
+        "height": 75,
+        "top": 725,
+        "right": 360,
+        "bottom": 800,
+        "left": 0
+      }
+    },
+    {
+      "viewport": "375x812",
+      "width": 375,
+      "overflow": false,
+      "outdoor": "true",
+      "dock": {
+        "x": 0,
+        "y": 648,
+        "width": 375,
+        "height": 90,
+        "top": 648,
+        "right": 375,
+        "bottom": 738,
+        "left": 0
+      },
+      "tabs": {
+        "x": 0,
+        "y": 737,
+        "width": 375,
+        "height": 75,
+        "top": 737,
+        "right": 375,
+        "bottom": 812,
+        "left": 0
+      }
+    },
+    {
+      "viewport": "412x915",
+      "width": 412,
+      "overflow": false,
+      "outdoor": "true",
+      "dock": {
+        "x": 0,
+        "y": 751,
+        "width": 412,
+        "height": 90,
+        "top": 751,
+        "right": 412,
+        "bottom": 841,
+        "left": 0
+      },
+      "tabs": {
+        "x": 0,
+        "y": 840,
+        "width": 412,
+        "height": 75,
+        "top": 840,
+        "right": 412,
+        "bottom": 915,
+        "left": 0
+      }
+    },
+    {
+      "viewport": "1280x900",
+      "width": 1280,
+      "overflow": false,
+      "outdoor": "true",
+      "dock": {
+        "x": 200,
+        "y": 706,
+        "width": 720,
+        "height": 82,
+        "top": 706,
+        "right": 920,
+        "bottom": 788,
+        "left": 200
+      },
+      "tabs": {
+        "x": 395,
+        "y": 808,
+        "width": 490,
+        "height": 74,
+        "top": 808,
+        "right": 885,
+        "bottom": 882,
+        "left": 395
+      }
+    },
+    {
+      "routeCards": 100,
+      "lastStationVisible": true
+    },
+    {
+      "keyboardMode": true,
+      "bottomDisplay": "none",
+      "dockPosition": "fixed"
+    }
+  ]
+}

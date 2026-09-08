@@ -97,7 +97,7 @@ export function normalizeBook(raw = {}) {
     }),
     settings: { ...base.settings, ...(source.settings || {}) }, createdAt: source.createdAt || Date.now(), updatedAt: source.updatedAt || Date.now()
   };
-  if (!book.runs.length) book.runs = [createRun(1, book.benchmarks[0]?.name || '')];
+  if (!book.runs.length) book.runs = [createRun(1, '')];
   book.runs.forEach((run) => { if (!run.stations.length) run.stations = [createStation()]; });
   return book;
 }

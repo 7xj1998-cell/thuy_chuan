@@ -29,7 +29,6 @@ import {
   compareRuns,
   createBenchmark,
   createBook,
-  createRun,
   createStation,
   finalizeStation,
   nextRunNumber,
@@ -50,7 +49,14 @@ import {
 import { exportExcelReport, exportPdfReport, exportLibraryBackup } from './report';
 import { useNotebookLibrary } from './useNotebookLibrary';
 import { inspectStation, normalizeStationDraft, FIELD_DEFAULTS } from './fieldChecks';
-import { ConfirmDialog, ElevationProfile, QualityCard, SurveyIllustration } from './FieldUI';
+import { ConfirmDialog, ElevationProfile, QualityCard, SheetDialog, SurveyIllustration } from './FieldUI';
+import {
+  changeRunStartPoint,
+  createUnstartedRun,
+  findValidBenchmark,
+  runHasReadings,
+  validBenchmarks,
+} from './runStart';
 import { OPEN_ROUTE_WARNING } from './terminology';
 import {
   canonicalBenchmarkElevationDraft,
@@ -321,6 +327,7 @@ export default function App() {
   const [exporting, setExporting] = useState(null);
   const [checksRequested, setChecksRequested] = useState(false);
   const [dialog, setDialog] = useState(null);
+  const [originPickerOpen, setOriginPickerOpen] = useState(false);
   const [pendingImport, setPendingImport] = useState(null);
   const [outdoor, setOutdoor] = useState(() => {
     try { return localStorage.getItem(OUTDOOR_STORAGE_KEY) === 'true'; } catch { return false; }
@@ -344,6 +351,7 @@ export default function App() {
     setChecksRequested(false);
     setSettingsOpen(false);
     setDialog(null);
+    setOriginPickerOpen(false);
   }, [book.id]);
 
   useEffect(() => {
@@ -393,8 +401,37 @@ export default function App() {
     setRunId(id); setStationIndex(0); setSettingsOpen(false);
   }
   function addRun(mode = 'single') {
-    const next = { ...createRun(nextRunNumber(book.runs), book.benchmarks.find((item) => item.name)?.name || ''), mode };
-    if (updateBook((previous) => ({ ...previous, runs: [...previous.runs, next] }))) selectRun(next.id);
+    const next = createUnstartedRun(book, mode);
+    if (updateBook((previous) => ({ ...previous, runs: [...previous.runs, next] }))) {
+      selectRun(next.id);
+      setTab('measure');
+    }
+  }
+  function goToBenchmarks() {
+    setOriginPickerOpen(false);
+    setSettingsOpen(false);
+    setTab('files');
+    window.setTimeout(() => {
+      const section = document.getElementById('benchmark-section');
+      section?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      section?.querySelector('input, button')?.focus({ preventScroll: true });
+    }, 50);
+  }
+  function setRunOrigin(run, benchmarkName, { confirm = true, initial = false } = {}) {
+    const benchmark = findValidBenchmark(book, benchmarkName);
+    if (!benchmark || benchmark.name === run.startPoint) return;
+    const applyChange = () => {
+      const saved = updateBook((previous) => changeRunStartPoint(previous, run.id, benchmark.name), { checkpoint: 'Đổi mốc xuất phát' });
+      if (saved) setToast({ text: initial ? `Đã bắt đầu ${run.name} từ ${benchmark.name}` : `Đã đổi mốc ${run.name} sang ${benchmark.name} · Kết quả đã tính lại` });
+    };
+    if (confirm && runHasReadings(run)) {
+      setDialog({
+        title: `Đổi mốc xuất phát của ${run.name}?`,
+        description: `Số đọc, tên điểm, loại ĐC/TP và thứ tự trạm được giữ nguyên. Cao độ và kết quả của riêng ${run.name} sẽ được tính lại từ ${benchmark.name}.`,
+        confirmLabel: 'Đổi mốc & tính lại',
+        onConfirm: () => { applyChange(); setDialog(null); },
+      });
+    } else applyChange();
   }
   function changeMode(mode) {
     if (mode === activeRun.mode) return;
@@ -552,10 +589,10 @@ export default function App() {
   const saveLabel = library.saveState === 'error' ? 'Chưa lưu được' : library.saveState === 'unsaved' ? 'Đang lưu' : 'Đã lưu trên máy';
 
   return (
-    <div className="app-v3 app-v25" data-outdoor={outdoor ? 'true' : 'false'}>
+    <div className="app-v3 app-v25 app-v27" data-outdoor={outdoor ? 'true' : 'false'}>
       <header className="workspace-header">
-        <div className="brand-mark" aria-hidden="true"><Crosshair /></div>
-        <div className="brand-copy"><div className="eyebrow">THỦY CHUẨN <span className="version-badge">2.6</span></div><h1>{book.name}</h1></div>
+        <div className="brand-mark" aria-hidden="true"><img src="/level-mark.svg" alt="" /></div>
+        <div className="brand-copy"><div className="eyebrow">THỦY CHUẨN <span className="version-badge">2.7</span></div><h1>{book.name}</h1></div>
         <div className="workspace-status"><button className="iconbtn" onClick={renameBook} aria-label="Đổi tên sổ"><PencilLine /></button></div>
       </header>
       <main id="main-content" data-tab={tab}>
@@ -563,15 +600,17 @@ export default function App() {
         {library.storageError && <div className="storage-banner" role="alert"><TriangleAlert /><div><b>Cần bảo vệ dữ liệu</b><p>{library.storageError}</p><button onClick={backupAll} disabled={Boolean(exporting)}>Tải sao lưu ngay</button><button onClick={save}>Thử lưu lại</button></div></div>}
         {library.saveState === 'recovered' && !library.storageError && <p className="storage-banner" role="status">Đã khôi phục thư viện từ bản lưu an toàn gần nhất.</p>}
         {tab !== 'files' && <RunPicker runs={book.runs} solvedRuns={solvedRuns} runId={activeRun.id} onSelect={selectRun} onAdd={() => addRun()} />}
-        {tab === 'measure' && <div ref={measureRef}><Measure book={book} availablePoints={availablePoints} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} updateStation={updateStation} updateRun={updateRun} updateBook={updateBook} finish={() => finishStation()} changeMode={changeMode} checksRequested={checksRequested} /></div>}
-        {tab === 'route' && <><ElevationProfile solved={activeSolved} /><Route run={activeRun} solved={activeSolved} settingsOpen={settingsOpen} setSettingsOpen={setSettingsOpen} updateRun={updateRun} addStation={addStation} edit={(index) => { setStationIndex(index); setTab('measure'); }} remove={deleteStation} duplicate={duplicateRun} deleteRun={deleteRun} availablePoints={availablePoints} pointScopeKey={book.id} /></>}
+        {tab === 'measure' && <div ref={measureRef}><Measure book={book} availablePoints={availablePoints} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} updateStation={updateStation} finish={() => finishStation()} changeMode={changeMode} checksRequested={checksRequested} onStart={(name) => setRunOrigin(activeRun, name, { confirm: false, initial: true })} onChangeOrigin={() => setOriginPickerOpen(true)} onManageBenchmarks={goToBenchmarks} /></div>}
+        {tab === 'route' && <><ElevationProfile solved={activeSolved} /><Route run={activeRun} solved={activeSolved} settingsOpen={settingsOpen} setSettingsOpen={setSettingsOpen} updateRun={updateRun} addStation={addStation} edit={(index) => { setStationIndex(index); setTab('measure'); }} remove={deleteStation} duplicate={duplicateRun} deleteRun={deleteRun} onChangeOrigin={() => { setSettingsOpen(false); setOriginPickerOpen(true); }} /></>}
         {tab === 'result' && <Results book={book} solvedRuns={solvedRuns} updateBook={updateBook} />}
         {tab === 'files' && <Files book={book} books={books} library={library} updateBook={updateBook} newBook={newBook} save={save} saveAs={saveAs} exportExcel={() => exportReport('xlsx')} exportPdf={() => exportReport('pdf')} backupAll={backupAll} exporting={exporting} fileRef={fileRef} importFile={importFile} availablePoints={availablePoints} setDialog={setDialog} outdoor={outdoor} setOutdoor={setOutdoor} />}
       </main>
+      {tab === 'measure' && activeRun.startPoint && <CaptureDock book={book} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} finish={() => finishStation()} />}
       <nav className="bottom" aria-label="Điều hướng chính">
         {NAV_ITEMS.map(({ id, label, Icon }) => <button key={id} className={tab === id ? 'active' : ''} aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}><span className="nav-icon" aria-hidden="true"><Icon /></span><span className="nav-label">{label}</span></button>)}
       </nav>
       {toast && <div className="toast" role="status" aria-live="polite"><span>{toast.text}</span>{toast.action && <button onClick={() => { toast.action.fn(); setToast(null); }}>{toast.action.label}</button>}</div>}
+      {originPickerOpen && <BenchmarkPickerDialog book={book} run={activeRun} onSelect={(name) => { setOriginPickerOpen(false); setRunOrigin(activeRun, name); }} onManage={goToBenchmarks} onClose={() => setOriginPickerOpen(false)} />}
       {dialog && <ConfirmDialog {...dialog} onClose={() => setDialog(null)} />}
       {pendingImport && <ConfirmDialog title="Nhập sổ vào thư viện" description={pendingImport.filename} messages={['Sổ đang làm sẽ được lưu trước khi nhập.', 'Tệp được thêm thành bản riêng; tên trùng không ghi đè sổ cũ.', 'Tệp sai định dạng sẽ bị từ chối.']} confirmLabel="Nhập bản riêng" onConfirm={confirmImport} onClose={() => setPendingImport(null)} />}
     </div>
@@ -598,42 +637,55 @@ function RunPicker({ runs, solvedRuns, runId, onSelect, onAdd }) {
   );
 }
 
-function StartSession({ book, run, updateBook, availablePoints }) {
-  const existing = book.benchmarks.filter((item) => item.name && canonicalBenchmarkElevationDraft(item.elevation));
-  const [name, setName] = useState(existing[0]?.name || '');
-  const [elevation, setElevation] = useState(existing[0]?.elevation || '');
-  const [setupError, setSetupError] = useState('');
-  const canonical = canonicalBenchmarkElevationDraft(elevation);
-  function chooseName(value) {
-    setName(value);
-    const match = existing.find((item) => item.name === uppercaseName(value).trim());
-    if (match) setElevation(match.elevation);
-  }
+function BenchmarkChoiceList({ book, selectedName, onSelect, onManage, autoFocus = false }) {
+  const benchmarks = validBenchmarks(book);
+  const [query, setQuery] = useState('');
+  const normalizedQuery = uppercaseName(query).trim();
+  const filtered = benchmarks.filter((benchmark) => !normalizedQuery || benchmark.name.includes(normalizedQuery));
+  return <div className="benchmark-picker">
+    {benchmarks.length > 0 && <label className="benchmark-search"><Search aria-hidden="true" /><input autoFocus={autoFocus} type="search" aria-label="Tìm mốc chuẩn" placeholder="Tìm nhanh theo tên mốc…" value={query} onChange={(event) => setQuery(event.target.value)} /></label>}
+    <div className="benchmark-options" role="listbox" aria-label="Mốc chuẩn hợp lệ trong sổ hiện tại">
+      {filtered.map((benchmark) => <button type="button" role="option" aria-selected={selectedName === benchmark.name} className={selectedName === benchmark.name ? 'selected' : ''} key={benchmark.id || benchmark.name} onClick={() => onSelect(benchmark.name)}>
+        <span className="benchmark-valid" aria-hidden="true"><Check /></span>
+        <span><b>{benchmark.name}</b><small>Mốc chuẩn đã lưu</small></span>
+        <strong className="numeric">{benchmark.elevation} <small>m</small></strong>
+      </button>)}
+    </div>
+    {benchmarks.length > 0 && filtered.length === 0 && <p className="empty">Không có mốc nào khớp “{query}”.</p>}
+    {benchmarks.length === 0 && <div className="benchmark-empty"><TriangleAlert aria-hidden="true" /><div><b>Chưa có mốc chuẩn hợp lệ</b><p>Thêm tên mốc và cao độ theo mét trong Sổ & tệp trước khi bắt đầu lượt.</p></div></div>}
+    <button type="button" className="benchmark-manage" onClick={onManage}><PencilLine />{benchmarks.length ? 'Quản lý mốc chuẩn' : 'Thêm mốc chuẩn'}</button>
+  </div>;
+}
+
+function BenchmarkPickerDialog({ book, run, onSelect, onManage, onClose }) {
+  const [selectedName, setSelectedName] = useState('');
+  const selected = findValidBenchmark(book, selectedName);
+  return <SheetDialog title="Đổi mốc xuất phát" description={`${run.name} · chọn một mốc chuẩn đã lưu trong sổ hiện tại.`} onClose={onClose} className="benchmark-dialog">
+    <BenchmarkChoiceList book={book} selectedName={selectedName} onSelect={setSelectedName} onManage={onManage} autoFocus />
+    <div className="modal-actions"><button type="button" onClick={onClose}>Hủy</button><button type="button" className="primary" disabled={!selected || selected.name === run.startPoint} onClick={() => onSelect(selected.name)}><Check />Dùng mốc {selected?.name || ''}</button></div>
+  </SheetDialog>;
+}
+
+function StartSession({ book, run, onStart, onManageBenchmarks }) {
+  const [name, setName] = useState('');
+  const selected = findValidBenchmark(book, name);
+  const recent = [...book.runs].reverse().find((item) => item.id !== run.id && findValidBenchmark(book, item.startPoint))?.startPoint;
   function start(event) {
     event.preventDefault();
-    const point = uppercaseName(name).trim();
-    if (!point || !canonical) { setSetupError('Nhập tên mốc và cao độ gốc để bắt đầu.'); return; }
-    const saved = existing.find((item) => item.name === point);
-    if (saved && canonicalBenchmarkElevationDraft(saved.elevation) !== canonical) { setSetupError('Mốc đã có cao độ khác. Hãy kiểm tra tại Mốc chuẩn trong Sổ & tệp.'); return; }
-    updateBook((previous) => ({
-      ...previous,
-      benchmarks: saved ? previous.benchmarks : [...previous.benchmarks.filter((item) => item.name !== point && item.name), createBenchmark(point, canonical)],
-      runs: previous.runs.map((item) => item.id === run.id ? { ...item, startPoint: point } : item),
-    }));
+    if (selected) onStart(selected.name);
   }
   return <form className="start-session card" onSubmit={start}>
-    <div className="card-heading"><span>Bắt đầu tại mốc gốc</span><h2>Sẵn sàng ra hiện trường.</h2><p>Chọn mốc và cao độ một lần. Điểm sau được nối tự động.</p></div>
-    <SurveyIllustration />
-    <div className="start-fields">
-      <div className="field-label"><span>Tên mốc gốc</span><PointCombobox ariaLabel="Tên mốc gốc" options={availablePoints} value={name} onValueChange={chooseName} scopeKey={book.id} /></div>
-      <div className="field-label"><span>Cao độ gốc · m</span><BenchmarkElevationInput value={elevation} onValueChange={setElevation} ariaLabel="Cao độ gốc theo mét" /></div>
+    <div className="start-session-heading">
+      <div className="card-heading"><span>Thiết lập lượt đo</span><h2>Chọn mốc xuất phát</h2><p>Mỗi lượt dùng mốc riêng. Cao độ lấy từ danh mục mốc chuẩn và không chỉnh tại đây.</p></div>
+      <SurveyIllustration />
     </div>
-    {setupError && <p className="warning" role="alert">{setupError}</p>}
-    <button className="primary" type="submit" disabled={!name.trim() || !canonical}><Crosshair />Bắt đầu đo từ {name || 'mốc gốc'}<ArrowRight /></button>
+    {recent && <button type="button" className="recent-benchmark" onClick={() => setName(recent)}><span>Dùng gần nhất</span><b>{recent}</b><ArrowRight /></button>}
+    <BenchmarkChoiceList book={book} selectedName={name} onSelect={setName} onManage={onManageBenchmarks} autoFocus />
+    <button className="primary start-measurement" type="submit" disabled={!selected}><Crosshair />Bắt đầu đo{selected ? ` từ ${selected.name}` : ''}<ArrowRight /></button>
   </form>;
 }
 
-function Measure({ book, availablePoints, run, solved, index, setIndex, updateStation, updateRun, updateBook, finish, changeMode, checksRequested }) {
+function Measure({ book, availablePoints, run, solved, index, setIndex, updateStation, finish, changeMode, checksRequested, onStart, onChangeOrigin, onManageBenchmarks }) {
   const station = run.stations[index];
   const row = solved.rows[index];
   if (!station) return null;
@@ -646,10 +698,16 @@ function Measure({ book, availablePoints, run, solved, index, setIndex, updateSt
 
   return (
     <section className="measure-shell">
-      <div className="measure-intro"><div><span className="section-kicker">ĐO HIỆN TRƯỜNG</span><h2>Trạm {String(index + 1).padStart(2, '0')}<span className="session-pill">{run.mode === 'single' ? '1 chỉ' : '3 chỉ'}</span></h2></div><span className="session-pill"><Check size={14} />{savedCount} trạm có số đọc</span></div>
-      {!run.startPoint && <StartSession key={run.id} book={book} run={run} updateBook={updateBook} availablePoints={availablePoints} />}
+      {run.startPoint && <div className="measure-intro"><div><span className="section-kicker">ĐO HIỆN TRƯỜNG</span><h2>Trạm {String(index + 1).padStart(2, '0')}<span className="session-pill">{run.mode === 'single' ? '1 chỉ' : '3 chỉ'}</span></h2></div><span className="session-pill"><Check size={14} />{savedCount} trạm có số đọc</span></div>}
+      {!run.startPoint && <StartSession key={run.id} book={book} run={run} onStart={onStart} onManageBenchmarks={onManageBenchmarks} />}
       <div className={`measure-layout${run.startPoint ? '' : ' is-locked'}`} aria-hidden={!run.startPoint}>
         <div className="measure-primary">
+          <div className="origin-card">
+            <span className="origin-icon" aria-hidden="true"><Crosshair /></span>
+            <span><small>Mốc xuất phát</small><b>{run.startPoint || 'Chưa chọn'}</b></span>
+            <strong className="numeric">{findValidBenchmark(book, run.startPoint)?.elevation || '—'} <small>m</small></strong>
+            <button type="button" onClick={onChangeOrigin}><PencilLine />Đổi mốc</button>
+          </div>
           <div className="survey-console">
             <div className="console-top">
               <div><span className="section-kicker">ĐIỂM ĐẶT MIA SAU</span><strong>{row?.fromName || run.startPoint || 'Chọn mốc gốc'}</strong><small className="numeric">H = {formatElevation(row?.fromElevation)} m</small></div>
@@ -696,12 +754,20 @@ function Measure({ book, availablePoints, run, solved, index, setIndex, updateSt
         </aside>
       </div>
       <QualityCard errors={checksRequested ? inspection.errors : []} warnings={checksRequested ? inspection.warnings : []} />
-      <div className={`capture-dock${run.startPoint ? '' : ' is-locked'}`} aria-hidden={!run.startPoint}>
-        <div className="capture-dock-summary"><span>Điểm tới <b className="numeric">{displayPoint}</b></span><strong className="numeric">{formatElevation(row?.elevation)} m</strong></div>
-        <div className="field-actions"><button className="step-button" aria-label="Trạm trước" onClick={() => setIndex(Math.max(0, index - 1))} disabled={index === 0}><ChevronLeft /></button><button type="button" className="primary finish" onClick={finish}><Check />{station.committedAt ? 'Cập nhật trạm' : 'Lưu & tiếp tục'}</button><button className="step-button" aria-label="Trạm tiếp theo" onClick={() => setIndex(Math.min(run.stations.length - 1, index + 1))} disabled={index === run.stations.length - 1}><ChevronRight /></button></div>
-      </div>
     </section>
   );
+}
+
+function CaptureDock({ book, run, solved, index, setIndex, finish }) {
+  const station = run.stations[index];
+  const row = solved.rows[index];
+  if (!station) return null;
+  const pointType = normalizePointType(station.pointType);
+  const displayPoint = station.point || suggestTargetPointName(book, run.id, index, pointType);
+  return <div className="capture-dock" aria-label="Điều khiển lưu trạm">
+    <div className="capture-dock-summary"><span>Điểm tới <b className="numeric">{displayPoint}</b></span><strong className="numeric">{formatElevation(row?.elevation)} m</strong></div>
+    <div className="field-actions"><button className="step-button" aria-label="Trạm trước" title="Trạm trước" onClick={() => setIndex(Math.max(0, index - 1))} disabled={index === 0}><ChevronLeft /></button><button type="button" className="primary finish" onClick={finish}><Check />{station.committedAt ? 'Cập nhật trạm' : 'Lưu & tiếp tục'}</button><button className="step-button" aria-label="Trạm tiếp theo" title="Trạm tiếp theo" onClick={() => setIndex(Math.min(run.stations.length - 1, index + 1))} disabled={index === run.stations.length - 1}><ChevronRight /></button></div>
+  </div>;
 }
 function Staff({ title, prefix, station, row, update, finish }) {
   return (
@@ -720,7 +786,7 @@ function Staff({ title, prefix, station, row, update, finish }) {
   );
 }
 
-function Route({ run, solved, settingsOpen, setSettingsOpen, updateRun, addStation, edit, remove, duplicate, deleteRun, availablePoints, pointScopeKey }) {
+function Route({ run, solved, settingsOpen, setSettingsOpen, updateRun, addStation, edit, remove, duplicate, deleteRun, onChangeOrigin }) {
   return (
     <section className="route-shell">
       <div className="card runsummary">
@@ -729,16 +795,12 @@ function Route({ run, solved, settingsOpen, setSettingsOpen, updateRun, addStati
           <div className="runsummary-main"><small>Tuyến đang chọn</small><h2>{run.name}</h2><p><b>{run.startPoint || '—'}</b><span aria-hidden="true">→</span><b>{solved.endPoint || run.startPoint || '—'}</b><span>· {solved.turningCount} ĐC · {solved.sideCount} TP</span></p></div>
           <button className="settings-btn" aria-label="Cài đặt lượt đo" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(!settingsOpen)}><Settings2 /></button>
         </div>
-        {settingsOpen && (
-          <div className="runsettings open">
-            <div className="twofields">
-              <label>Tên lượt<input value={run.name} onChange={(event) => updateRun(run.id, { name: event.target.value })} /></label>
-              <div className="field-label"><span>Điểm đầu</span><PointCombobox ariaLabel="Điểm đầu lượt đo" options={availablePoints} scopeKey={pointScopeKey} value={run.startPoint} onValueChange={(value) => updateRun(run.id, { startPoint: value })} /></div>
-            </div>
-            <div className="runactions"><button onClick={duplicate}><Copy />Nhân bản</button><button className="danger" onClick={deleteRun}><Trash2 />Xóa lượt</button></div>
-          </div>
-        )}
       </div>
+      {settingsOpen && <SheetDialog title="Cài đặt lượt đo" description="Đổi tên, mốc xuất phát hoặc quản lý bản sao của lượt hiện tại." onClose={() => setSettingsOpen(false)} className="run-settings-sheet">
+        <label className="field-label"><span>Tên lượt</span><input value={run.name} onChange={(event) => updateRun(run.id, { name: event.target.value })} /></label>
+        <div className="settings-origin"><span><small>Mốc xuất phát</small><b>{run.startPoint || 'Chưa chọn'}</b></span><button type="button" onClick={onChangeOrigin}><PencilLine />Đổi mốc</button></div>
+        <div className="runactions"><button type="button" onClick={() => { setSettingsOpen(false); duplicate(); }}><Copy />Nhân bản</button><button type="button" className="danger" onClick={() => { setSettingsOpen(false); deleteRun(); }}><Trash2 />Xóa lượt</button></div>
+      </SheetDialog>}
       {!solved.solved && <p className="warning">Lượt này chưa chứa mốc chuẩn có cao độ biết trước.</p>}
       <div className="route-list-head"><div><span>Hành trình đo</span><b className="numeric">{solved.rows.length} trạm</b></div><small>Chạm để sửa · vuốt trái để xóa</small></div>
       <div className="route-list">{solved.rows.map((row, index) => <SwipeStation key={row.id} row={row} index={index} edit={edit} remove={remove} />)}</div>
@@ -838,32 +900,41 @@ function Results({ book, solvedRuns, updateBook }) {
   return (
     <section className="result-shell">
       <SectionHeading Icon={BarChart2} eyebrow="Kết quả kỹ thuật" title="Kiểm tra & bình sai" description="Theo dõi sai số, độ chính xác và cao độ sau bình sai." />
-      <NetworkAdjustment network={network} />
-      {solvedRuns.map((solved) => (
-        <div className="card result-card" key={solved.runId}>
-          <div className="card-heading"><span>Lượt đo</span><h3>{solved.runName}</h3></div>
-          <div className="metric">
-            <div><span>ĐC / TP</span><b className="numeric">{solved.turningCount} / {solved.sideCount}</b></div>
-            <div><span>Chiều dài</span><b className="numeric">{solved.totalDistance === null ? '—' : `${formatMeters(solved.totalDistance)} m`}</b></div>
-            <div><span>ΣΔD</span><b className="numeric">{formatMeters(solved.sumDistanceDifference)} m</b></div>
+      <div className="result-area" data-result-area="closure">
+        <div className="result-area-heading"><ShieldCheck aria-hidden="true" /><div><span>01</span><h3>Kiểm tra khép</h3></div></div>
+        {solvedRuns.map((solved) => (
+          <div className="card result-card" key={solved.runId}>
+            <div className="card-heading"><span>Lượt đo</span><h3>{solved.runName}</h3></div>
+            <div className="metric">
+              <div><span>ĐC / TP</span><b className="numeric">{solved.turningCount} / {solved.sideCount}</b></div>
+              <div><span>Chiều dài</span><b className="numeric">{solved.totalDistance === null ? '—' : `${formatMeters(solved.totalDistance)} m`}</b></div>
+              <div><span>ΣΔD</span><b className="numeric">{formatMeters(solved.sumDistanceDifference)} m</b></div>
+            </div>
+            {solved.checks.length ? solved.checks.map((check) => (
+              <div className="check benchmark-summary" key={`${solved.runId}-${check.index}`}><b>{check.name}</b><span className="numeric">Chuẩn {formatElevation(check.known)} m · Đo {formatElevation(check.measured)} m · Lệch {formatSignedMillimeters(check.difference)} mm</span></div>
+            )) : <p className="warning">Lượt này chưa chứa mốc chuẩn.</p>}
           </div>
-          {solved.checks.length ? solved.checks.map((check) => (
-            <div className="check benchmark-summary" key={`${solved.runId}-${check.index}`}><b>{check.name}</b><span className="numeric">Chuẩn {formatElevation(check.known)} m · Đo {formatElevation(check.measured)} m · Lệch {formatSignedMillimeters(check.difference)} mm</span></div>
-          )) : <p className="warning">Lượt này chưa chứa mốc chuẩn.</p>}
-        </div>
-      ))}
-      <div className="card">
-        <div className="card-heading"><span>Đối chiếu</span><h3>So sánh điểm chuyền giữa các lượt</h3></div>
-        {comparisons.length ? comparisons.map((group) => (
-          <div className="compare" key={group.name}>
-            <div className="compareHead"><b>{group.name}</b><span className="numeric">Max - Min: {formatMillimeters(group.spread)} mm</span></div>
-            {group.values.map((value) => <div className="compareLine" key={value.runId}><span>{value.runName}</span><b className="numeric">{formatElevation(value.elevation)} m</b></div>)}
-          </div>
-        )) : <p className="empty">Chưa có điểm chuyền cùng tên ở ít nhất 2 lượt.</p>}
+        ))}
       </div>
-      <div className="card tolerance-card">
-        <label>Hệ số C <span>mm/√km</span><input className="numeric" inputMode="decimal" value={coefficient} onChange={(event) => updateBook((previous) => ({ ...previous, settings: { ...previous.settings, toleranceCoefficient: event.target.value } }))} /></label>
-        <p className="note">C là tham số kiểm tra sai số khép; bình sai lưới chỉ dùng các trị đo điểm chuyền liên kết.</p>
+      <div className="result-area" data-result-area="comparison">
+        <div className="result-area-heading"><RouteIcon aria-hidden="true" /><div><span>02</span><h3>So sánh điểm chung</h3></div></div>
+        <div className="card">
+          <div className="card-heading"><span>Đối chiếu theo tên điểm</span><h3>Điểm chuyền giữa các lượt</h3></div>
+          {comparisons.length ? comparisons.map((group) => (
+            <div className="compare" key={group.name}>
+              <div className="compareHead"><b>{group.name}</b><span className="numeric">Max - Min: {formatMillimeters(group.spread)} mm</span></div>
+              {group.values.map((value) => <div className="compareLine" key={value.runId}><span>{value.runName}</span><b className="numeric">{formatElevation(value.elevation)} m</b></div>)}
+            </div>
+          )) : <p className="empty">Chưa có điểm chuyền cùng tên ở ít nhất 2 lượt.</p>}
+        </div>
+      </div>
+      <div className="result-area" data-result-area="adjustment">
+        <div className="result-area-heading"><BarChart2 aria-hidden="true" /><div><span>03</span><h3>Bình sai lưới</h3></div></div>
+        <NetworkAdjustment network={network} />
+        <div className="card tolerance-card">
+          <label>Hệ số C <span>mm/√km</span><input className="numeric" inputMode="decimal" value={coefficient} onChange={(event) => updateBook((previous) => ({ ...previous, settings: { ...previous.settings, toleranceCoefficient: event.target.value } }))} /></label>
+          <p className="note">C là tham số kiểm tra sai số khép; bình sai lưới chỉ dùng các trị đo điểm chuyền liên kết.</p>
+        </div>
       </div>
     </section>
   );
@@ -933,14 +1004,17 @@ function Files({ book, books, library, updateBook, newBook, save, saveAs, export
     <section className="files-shell">
       <SectionHeading Icon={FolderOpen} eyebrow="Thư viện hiện trường" title="Sổ đo của bạn" description="Tự lưu trên thiết bị. Nhập sổ mới luôn giữ nguyên các sổ đã có." />
       <div className="data-health"><div><span>Sổ trong thư viện</span><b className="numeric">{books.length}</b></div><div><span>Điểm đã ghi</span><b className="numeric">{totalStations}</b></div><div><span>Có thể khôi phục</span><b className="numeric">{library.trash.length}</b></div></div>
+      <div className="file-group-heading"><ShieldCheck aria-hidden="true" /><div><span>An toàn dữ liệu</span><h3>Sao lưu & phục hồi</h3></div></div>
       <div className="card backup-card"><ShieldCheck /><div><h3>Mang theo một bản sao an toàn.</h3><p>Sao lưu toàn bộ sổ vào Tệp, Drive hoặc máy tính. Dữ liệu cục bộ có thể mất nếu gỡ ứng dụng hoặc xóa dữ liệu trình duyệt.</p></div><button className="primary" onClick={backupAll} disabled={Boolean(exporting)}><Download />Sao lưu tất cả</button></div>
+      <div className="file-group-heading"><BookOpen aria-hidden="true" /><div><span>Sổ hiện tại</span><h3>Quản lý & nhập xuất</h3></div></div>
       <div className="card current-book">
         <div className="card-heading"><span>Sổ đang mở</span><h3>{book.name}</h3></div>
         <div className="file-actions">{fileActions.map(({ label, hint, Icon, onClick, primary }) => <button key={label} className={primary ? 'action-tile primary-tile' : 'action-tile'} onClick={onClick} disabled={Boolean(exporting)}><span className="action-icon" aria-hidden="true"><Icon /></span><span><b>{label}</b><small>{hint}</small></span></button>)}</div>
         {exporting && <p role="status" className="note">Đang xử lý tệp…</p>}
         <input ref={fileRef} aria-label="Chọn tệp nhập sổ" hidden type="file" accept=".xlsx,.xls,.json" onChange={(event) => { const file = event.target.files?.[0]; if (file) importFile(file); event.target.value = ''; }} />
       </div>
-      <div className="card">
+      <div className="file-group-heading"><Crosshair aria-hidden="true" /><div><span>Điểm khống chế</span><h3>Mốc chuẩn</h3></div></div>
+      <div className="card benchmark-section" id="benchmark-section" tabIndex={-1}>
         <div className="card-title"><div className="card-heading"><span>Điểm gốc của sổ</span><h3>Mốc chuẩn</h3></div><button className="compact-button" onClick={() => updateBook((previous) => ({ ...previous, benchmarks: [...previous.benchmarks, createBenchmark()] }))}><Plus />Thêm mốc</button></div>
         <div className="bench-labels" aria-hidden="true"><span>Tên mốc</span><span>Cao độ H (m)</span></div>
         {book.benchmarks.map((benchmark) => <div className="benchrow" key={benchmark.id}>
@@ -952,6 +1026,7 @@ function Files({ book, books, library, updateBook, newBook, save, saveAs, export
         </div>)}
         {!book.benchmarks.length && <p className="empty">Thêm mốc có cao độ biết trước để tính cao độ của tuyến.</p>}
       </div>
+      <div className="file-group-heading"><FolderOpen aria-hidden="true" /><div><span>Trên thiết bị</span><h3>Quản lý sổ</h3></div></div>
       <div className="card">
         <div className="card-title"><div className="card-heading"><span>Tất cả sổ đo</span><h3>Thư viện thiết bị</h3></div><span className="session-pill">{books.length} sổ</span></div>
         <label className="library-tools"><Search /><input type="search" aria-label="Tìm sổ" placeholder="Tìm theo tên sổ…" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
@@ -970,6 +1045,7 @@ function Files({ book, books, library, updateBook, newBook, save, saveAs, export
         {library.trash.map((entry) => <div className="saved" key={entry.id}><div><b>{entry.book.name}</b><small>{new Date(entry.deletedAt).toLocaleString('vi-VN')}</small></div><button onClick={() => library.restoreDeleted(entry.id)}>Khôi phục sổ</button></div>)}
         {!library.trash.length && <p className="empty">Chưa có sổ nào trong thùng rác.</p>}
       </div></details>
+      <div className="file-group-heading"><Settings2 aria-hidden="true" /><div><span>Khả năng đọc</span><h3>Cài đặt hiển thị</h3></div></div>
       <details className="card field-settings"><summary><Settings2 />Ngưỡng nhắc nhập liệu</summary>
         <label className="setting-row outdoor-setting"><span><b>Chế độ ngoài trời</b><small>Tăng cỡ số và tương phản để đọc dưới nắng</small></span><input type="checkbox" aria-label="Bật chế độ ngoài trời" checked={outdoor} onChange={(event) => setOutdoor(event.target.checked)} /></label>
         <p className="note">Các ngưỡng do người đo đặt để phát hiện nhập nhầm; không phải tiêu chuẩn nghiệm thu. Nhập 0 để tắt từng nhắc.</p>

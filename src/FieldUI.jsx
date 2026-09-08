@@ -30,6 +30,32 @@ export function ConfirmDialog({ title, description, messages = [], confirmLabel 
   </div>;
 }
 
+export function SheetDialog({ title, description, children, onClose, className = '' }) {
+  const ref = useRef(null);
+  const headingId = useId();
+  useEffect(() => {
+    const previous = document.activeElement;
+    const oldOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    ref.current?.querySelector('input, button, select')?.focus();
+    return () => { document.body.style.overflow = oldOverflow; previous?.focus?.(); };
+  }, []);
+  function handleKeys(event) {
+    if (event.key === 'Escape') { event.preventDefault(); onClose(); return; }
+    if (event.key !== 'Tab') return;
+    const focusable = [...ref.current.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), a[href]')];
+    const first = focusable[0], last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  }
+  return <div className="modal-backdrop sheet-backdrop" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section ref={ref} className={`modal-panel sheet-panel ${className}`.trim()} role="dialog" aria-modal="true" aria-labelledby={headingId} onKeyDown={handleKeys}>
+      <div className="card-title"><div><h2 id={headingId}>{title}</h2>{description && <p>{description}</p>}</div><button type="button" onClick={onClose} aria-label="Đóng hộp thoại" title="Đóng"><X /></button></div>
+      {children}
+    </section>
+  </div>;
+}
+
 export function QualityCard({ errors = [], warnings = [] }) {
   const level = errors.length ? 'error' : warnings.length ? 'warning' : 'pending';
   const issues = errors.length ? errors : warnings;
