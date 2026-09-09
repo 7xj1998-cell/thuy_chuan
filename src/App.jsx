@@ -592,7 +592,7 @@ export default function App() {
     <div className="app-v3 app-v25 app-v27" data-outdoor={outdoor ? 'true' : 'false'}>
       <header className="workspace-header">
         <div className="brand-mark" aria-hidden="true"><img src="/level-mark.svg" alt="" /></div>
-        <div className="brand-copy"><div className="eyebrow">THỦY CHUẨN <span className="version-badge">2.7</span></div><h1>{book.name}</h1></div>
+        <div className="brand-copy"><div className="eyebrow">THỦY CHUẨN <span className="version-badge">2.7.1</span></div><h1>{book.name}</h1></div>
         <div className="workspace-status"><button className="iconbtn" onClick={renameBook} aria-label="Đổi tên sổ"><PencilLine /></button></div>
       </header>
       <main id="main-content" data-tab={tab}>
@@ -700,7 +700,7 @@ function Measure({ book, availablePoints, run, solved, index, setIndex, updateSt
     <section className="measure-shell">
       {run.startPoint && <div className="measure-intro"><div><span className="section-kicker">ĐO HIỆN TRƯỜNG</span><h2>Trạm {String(index + 1).padStart(2, '0')}<span className="session-pill">{run.mode === 'single' ? '1 chỉ' : '3 chỉ'}</span></h2></div><span className="session-pill"><Check size={14} />{savedCount} trạm có số đọc</span></div>}
       {!run.startPoint && <StartSession key={run.id} book={book} run={run} onStart={onStart} onManageBenchmarks={onManageBenchmarks} />}
-      <div className={`measure-layout${run.startPoint ? '' : ' is-locked'}`} aria-hidden={!run.startPoint}>
+      <div className={`measure-layout measure-only${run.startPoint ? '' : ' is-locked'}`} aria-hidden={!run.startPoint}>
         <div className="measure-primary">
           <div className="origin-card">
             <span className="origin-icon" aria-hidden="true"><Crosshair /></span>
@@ -749,9 +749,6 @@ function Measure({ book, availablePoints, run, solved, index, setIndex, updateSt
             <label className="field-label"><span>Ghi chú trạm</span><input aria-label="Ghi chú trạm" placeholder="Vị trí, thời tiết, điều kiện đo…" value={station.note || ''} onChange={(event) => update('note', event.target.value)} /></label>
           </details>
         </div>
-        <aside className="measure-aside">
-          <ElevationProfile solved={solved} />
-        </aside>
       </div>
       <QualityCard errors={checksRequested ? inspection.errors : []} warnings={checksRequested ? inspection.warnings : []} />
     </section>

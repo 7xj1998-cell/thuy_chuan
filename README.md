@@ -2,6 +2,11 @@
 
 Ứng dụng ghi, tính và bình sai cao độ cho nhiều lượt đo độc lập, dùng chung mã nguồn cho web, iPhone và Android.
 
+## Phiên bản 2.7.1
+
+- Lược bỏ khối “Đọc nhanh tuyến đo / Mặt cắt cao độ” khỏi tab Đo để màn hình nhập liệu gọn hơn và tránh lặp nội dung.
+- Tab Đo dùng toàn bộ chiều rộng trên màn hình lớn; biểu đồ cao độ vẫn được giữ nguyên trong tab Tuyến.
+
 ## Phiên bản 2.7.0
 
 - Mỗi lượt mới luôn mở bước chọn mốc xuất phát riêng; chỉ cho chọn mốc có tên và cao độ hợp lệ trong đúng sổ hiện tại, đồng thời chấp nhận cao độ thực `0,000 m`.

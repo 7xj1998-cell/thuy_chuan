@@ -2607,6 +2607,7 @@ section {
 .app-v25 .session-pill { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 7px; padding: 7px 11px; border: 1px solid #d3ded7; border-radius: 8px; background: #edf3ef; color: #335346; font-family: var(--font-data); font-size: 11px; font-weight: 600; }
 .app-v25 .session-pill svg { width: 15px; height: 15px; }
 .app-v25 .measure-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; align-items: start; gap: 22px; }
+.app-v25 .measure-layout.measure-only { grid-template-columns: minmax(0, 1fr); }
 .app-v25 .measure-layout.is-locked,
 .app-v25 .capture-dock.is-locked { display: none; }
 .app-v25 :is(.measure-primary, .measure-aside) { min-width: 0; }

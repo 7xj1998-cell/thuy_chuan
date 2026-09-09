@@ -407,7 +407,7 @@ export function createNotebookLibrary(storage = defaultStorage()) {
     },
     exportBackup() {
       try {
-        return JSON.stringify({ format: BACKUP_FORMAT, schemaVersion: 5, appVersion: '2.7.0', exportedAt: new Date().toISOString(),
+        return JSON.stringify({ format: BACKUP_FORMAT, schemaVersion: 5, appVersion: '2.7.1', exportedAt: new Date().toISOString(),
           library, ...(loaded.unreadableSources.length ? { unreadableSources: loaded.unreadableSources } : {}) }, null, 2);
       } catch (cause) { report(cause); return ''; }
     },
