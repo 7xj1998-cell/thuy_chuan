@@ -12,6 +12,7 @@ describe('cấu trúc giao diện mobile', () => {
       removeItem: (key) => values.delete(key),
       clear: () => values.clear(),
     };
+    globalThis.scrollTo = () => {};
   });
 
   it('đặt bộ reng lượt, trạng thái lưu và cài đặt trong một hàng gọn', () => {
@@ -42,6 +43,13 @@ describe('cấu trúc giao diện mobile', () => {
     expect(html).toContain('role="combobox"');
     expect(html).toContain('aria-autocomplete="list"');
     expect(html).toContain('placeholder="1.1"');
+    expect(html).not.toContain('Chọn DC1');
+  });
+
+  it('có hoàn tác nội bộ không phụ thuộc thao tác lắc của iPhone', () => {
+    const html = renderToStaticMarkup(<App />);
+    expect(html).toContain('Chưa có thay đổi để hoàn tác');
+    expect(html).toContain('Hoàn tác');
   });
 
   it('hiển thị dữ liệu cũ 2000.000 thành số đọc 2,000 m', () => {

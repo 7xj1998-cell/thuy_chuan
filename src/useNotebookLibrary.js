@@ -24,5 +24,6 @@ export function useNotebookLibrary() {
   return { ...snapshot, updateBook: store.updateBook, saveNow: store.saveNow, openBook: store.openBook,
     newBook: store.newBook, copyBook: store.copyBook, importBooks: store.importBooks,
     deleteBook: store.deleteBook, restoreDeleted: store.restoreDeleted,
-    restoreCheckpoint: store.restoreCheckpoint, exportBackup: store.exportBackup };
+    restoreCheckpoint: store.restoreCheckpoint, undoCheckpoint: store.undoCheckpoint,
+    exportBackup: store.exportBackup };
 }

@@ -12,8 +12,6 @@ import {
   FilePlus2,
   FileText,
   FolderOpen,
-  Gauge,
-  Landmark,
   PencilLine,
   Plus,
   Route as RouteIcon,
@@ -25,6 +23,7 @@ import {
   ArrowRight,
   Trash2,
   TriangleAlert,
+  Undo2,
   Upload,
 } from 'lucide-react';
 import {
@@ -352,6 +351,7 @@ export default function App() {
   const availablePoints = useAvailablePoints(book);
   const settingsRun = book.runs.find((run) => run.id === panels.settingsRunId) || null;
   const originPickerRun = book.runs.find((run) => run.id === panels.originPickerRunId) || null;
+  const undoEntry = library.checkpoints.find((entry) => entry.book.id === book.id && entry.kind !== 'undo-backup') || null;
 
   useEffect(() => {
     setRunId(book.runs[0].id);
@@ -423,6 +423,7 @@ export default function App() {
     dispatchPanel({ type: 'reset' });
     setDialog(null);
     setTab(nextTab);
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }
   function addRun(mode = 'single') {
     const next = createUnstartedRun(book, mode);
@@ -543,6 +544,24 @@ export default function App() {
   function save() {
     if (library.saveNow()) setToast({ text: 'Đã lưu sổ trên thiết bị' });
   }
+  function requestUndo() {
+    if (!undoEntry) return;
+    const entry = undoEntry;
+    setDialog({
+      title: 'Hoàn tác thay đổi gần nhất?',
+      description: `${entry.reason} · ${new Date(entry.createdAt).toLocaleString('vi-VN')}. Dữ liệu hiện tại sẽ được giữ thành một bản phục hồi an toàn.`,
+      confirmLabel: 'Hoàn tác an toàn',
+      onConfirm: () => {
+        if (library.undoCheckpoint(entry.id)) {
+          const restoredRun = entry.book.runs.find((run) => run.id === activeRun.id) || entry.book.runs[0];
+          setRunId(restoredRun.id);
+          setStationIndex(Math.min(stationIndex, restoredRun.stations.length - 1));
+          setToast({ text: `Đã hoàn tác: ${entry.reason}` });
+        }
+        setDialog(null);
+      },
+    });
+  }
   function saveAs() {
     const name = prompt('Tên bản sao:', book.name + ' - bản sao');
     if (name?.trim() && library.copyBook(name.trim())) setToast({ text: 'Đã tạo bản sao trong thư viện' });
@@ -620,15 +639,15 @@ export default function App() {
     <div className="app-v3 app-v25 app-v27 app-v28" data-outdoor={outdoor ? 'true' : 'false'}>
       <header className="workspace-header">
         <div className="brand-mark" aria-hidden="true"><img src="/level-mark.svg" alt="" /></div>
-        <div className="brand-copy"><div className="eyebrow">THỦY CHUẨN <span className="version-badge">2.8.0</span></div><h1>{book.name}</h1></div>
+        <div className="brand-copy"><div className="eyebrow">THỦY CHUẨN <span className="version-badge">2.8.1</span></div><h1>{book.name}</h1></div>
         <div className="workspace-status"><button className="iconbtn" onClick={renameBook} aria-label="Đổi tên sổ"><PencilLine /></button></div>
       </header>
       <main id="main-content" data-tab={tab}>
         {tab !== 'measure' && <div className="field-toolbar compact-toolbar"><span className="save-indicator" data-state={library.saveState}><CloudCheck size={14} />{saveLabel}</span></div>}
         {library.storageError && <div className="storage-banner" role="alert"><TriangleAlert /><div><b>Cần bảo vệ dữ liệu</b><p>{library.storageError}</p><button onClick={backupAll} disabled={Boolean(exporting)}>Tải sao lưu ngay</button><button onClick={save}>Thử lưu lại</button></div></div>}
         {library.saveState === 'recovered' && !library.storageError && <p className="storage-banner" role="status">Đã khôi phục thư viện từ bản lưu an toàn gần nhất.</p>}
-        {tab !== 'files' && tab !== 'measure' && <RunPicker runs={book.runs} solvedRuns={solvedRuns} runId={activeRun.id} onSelect={selectRun} onAdd={() => addRun()} />}
-        {tab === 'measure' && <div ref={measureRef}><Measure book={book} runs={book.runs} availablePoints={availablePoints} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} updateStation={updateStation} finish={() => finishStation()} changeMode={changeMode} checksRequested={checksRequested} saveState={library.saveState} onSelectRun={selectRun} onOpenSettings={() => openRunSettings(activeRun.id)} onStart={(name, startMode) => setRunOrigin(activeRun, name, { confirm: false, initial: true, startMode })} onManageBenchmarks={goToBenchmarks} /></div>}
+        {tab === 'route' && <RunPicker runs={book.runs} solvedRuns={solvedRuns} runId={activeRun.id} onSelect={selectRun} onAdd={() => addRun()} />}
+        {tab === 'measure' && <div ref={measureRef}><Measure book={book} runs={book.runs} availablePoints={availablePoints} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} updateStation={updateStation} finish={() => finishStation()} changeMode={changeMode} checksRequested={checksRequested} saveState={library.saveState} onSelectRun={selectRun} onOpenSettings={() => openRunSettings(activeRun.id)} onUndo={requestUndo} undoEntry={undoEntry} onStart={(name, startMode) => setRunOrigin(activeRun, name, { confirm: false, initial: true, startMode })} onManageBenchmarks={goToBenchmarks} /></div>}
         {tab === 'route' && <><ElevationProfile solved={activeSolved} /><Route run={activeRun} solved={activeSolved} addStation={addStation} edit={(index) => { setStationIndex(index); changeTab('measure'); }} remove={deleteStation} onOpenSettings={() => openRunSettings(activeRun.id)} /></>}
         {tab === 'result' && <Results book={book} solvedRuns={solvedRuns} updateBook={updateBook} />}
         {tab === 'files' && <Files book={book} books={books} library={library} updateBook={updateBook} newBook={newBook} save={save} saveAs={saveAs} exportExcel={() => exportReport('xlsx')} exportPdf={() => exportReport('pdf')} backupAll={backupAll} exporting={exporting} fileRef={fileRef} importFile={importFile} availablePoints={availablePoints} setDialog={setDialog} outdoor={outdoor} setOutdoor={setOutdoor} />}
@@ -746,7 +765,7 @@ function StartSession({ book, run, onStart, onManageBenchmarks }) {
   </form>;
 }
 
-function Measure({ book, runs, availablePoints, run, solved, index, setIndex, updateStation, finish, changeMode, checksRequested, saveState, onSelectRun, onOpenSettings, onStart, onManageBenchmarks }) {
+function Measure({ book, runs, availablePoints, run, solved, index, setIndex, updateStation, finish, changeMode, checksRequested, saveState, onSelectRun, onOpenSettings, onUndo, undoEntry, onStart, onManageBenchmarks }) {
   const station = run.stations[index];
   const row = solved.rows[index];
   if (!station) return null;
@@ -757,7 +776,6 @@ function Measure({ book, runs, availablePoints, run, solved, index, setIndex, up
   const update = (field, value) => updateStation(run, station.id, field, value);
   const usedControls = run.stations.slice(0, index).map((item) => item.point).filter(isNamedControlPoint);
   const recentControl = usedControls.filter((name) => /^DC/i.test(name)).at(-1) || null;
-  const nextControl = availablePoints.find((name) => /^DC/i.test(name) && !usedControls.includes(name)) || null;
   const unresolved = row?.elevation === null || row?.elevation === undefined;
   const elevationText = unresolved ? 'Chưa xác định' : `${formatElevation(row.elevation)} m`;
   const legacySide = pointType === POINT_TYPE_SIDE;
@@ -768,6 +786,7 @@ function Measure({ book, runs, availablePoints, run, solved, index, setIndex, up
         <label><span className="sr-only">Chọn lượt đo</span><select value={run.id} onChange={(event) => onSelectRun(event.target.value)}>{runs.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <span className={`measure-run-status ${solved.solved ? 'is-ready' : 'is-open'}`}>{solved.solved ? 'Đã có cao độ' : run.startMode === START_MODE_UNKNOWN ? 'Chưa khép mốc' : 'Đang đo'}</span>
         <span className="measure-save-state">{saveState === 'error' ? 'Lỗi lưu' : saveState === 'unsaved' ? 'Đang lưu' : 'Đã lưu'}</span>
+        <button type="button" className="undo-btn" disabled={!undoEntry} onClick={onUndo} aria-label={undoEntry ? `Hoàn tác: ${undoEntry.reason}` : 'Chưa có thay đổi để hoàn tác'} title={undoEntry ? `Hoàn tác: ${undoEntry.reason}` : 'Chưa có thay đổi để hoàn tác'}><Undo2 /><span>Hoàn tác</span></button>
         <button type="button" className="settings-btn" aria-label={`Cài đặt ${run.name}`} onClick={onOpenSettings}><Settings2 /></button>
       </div>
       {!run.startPoint && <StartSession key={run.id} book={book} run={run} onStart={onStart} onManageBenchmarks={onManageBenchmarks} />}
@@ -804,9 +823,8 @@ function Measure({ book, runs, availablePoints, run, solved, index, setIndex, up
           </div>
           <div className="pointbox">
             <div className="point-entry"><span>Điểm tới</span><PointCombobox key={station.id} ariaLabel="Điểm tới" options={availablePoints} scopeKey={book.id} placeholder={autoName} value={station.point} onValueChange={(value) => update('point', value)} /></div>
-            {!legacySide && (recentControl || nextControl) && <div className="control-point-hints">
+            {!legacySide && recentControl && <div className="control-point-hints">
               {recentControl && <span>DC gần nhất: <b>{recentControl}</b></span>}
-              {nextControl && <button type="button" onClick={() => update('point', nextControl)}>Chọn {nextControl}</button>}
             </div>}
           </div>
           <details className="quick-options" key={run.mode}>
@@ -938,10 +956,6 @@ function SwipeStation({ row, index, edit, remove }) {
   );
 }
 
-function SectionHeading({ Icon, eyebrow, title, description }) {
-  return <div className="section-heading"><span className="section-heading-icon" aria-hidden="true"><Icon /></span><div><span>{eyebrow}</span><h2>{title}</h2><p>{description}</p></div></div>;
-}
-
 function comparisonDirection(pair) {
   if (pair.difference === 0) return `${pair.toRunName} bằng ${pair.fromRunName}`;
   return `${pair.toRunName} ${pair.difference > 0 ? 'cao hơn' : 'thấp hơn'} ${pair.fromRunName}`;
@@ -953,9 +967,9 @@ function Results({ book, solvedRuns, updateBook }) {
   const network = adjustLevelingNetwork(solvedRuns, book.benchmarks, coefficient);
   return (
     <section className="result-shell">
-      <SectionHeading Icon={BarChart2} eyebrow="" title="Kết quả & bình sai" description="" />
+      <h2 className="page-title">Kết quả</h2>
       <div className="result-area" data-result-area="closure">
-        <div className="result-area-heading"><Gauge aria-hidden="true" /><div><h3>Kiểm tra khép</h3></div></div>
+        <div className="result-area-heading"><h3>Kiểm tra khép</h3></div>
         {solvedRuns.map((solved) => (
           <div className="card result-card" key={solved.runId}>
             <div className="card-heading"><span>Lượt đo</span><h3>{solved.runName}</h3></div>
@@ -971,14 +985,13 @@ function Results({ book, solvedRuns, updateBook }) {
         ))}
       </div>
       <div className="result-area" data-result-area="comparison">
-        <div className="result-area-heading"><RouteIcon aria-hidden="true" /><div><h3>So sánh điểm chung</h3></div></div>
+        <div className="result-area-heading"><h3>So sánh điểm chung</h3></div>
         <div className="card">
-          <div className="card-heading"><h3>DC, DG, GPS và mốc kiểm tra</h3></div>
           {comparisons.length ? comparisons.map((group) => (
             <div className="compare" key={group.name}>
-              <div className="compareHead"><b>{group.name}</b><span className="numeric">Max - Min: {formatMillimeters(group.spread)} mm</span></div>
+              <div className="compareHead"><b>{group.name}</b><span><small>Biên độ (Max−Min)</small><strong className="numeric">{formatMillimeters(group.spread)} mm</strong></span></div>
               {group.values.map((value) => <div className="compareLine" key={value.runId}><span>{value.runName}</span><b className="numeric">{formatElevation(value.elevation)} m</b></div>)}
-              <details className="pair-comparisons">
+              <details className="pair-comparisons" open={group.pairs.length <= 3}>
                 <summary>Chênh lệch giữa các lượt · {group.pairs.length}</summary>
                 {group.pairs.map((pair) => <div className="pair-comparison" key={`${pair.fromRunId}-${pair.toRunId}`}>
                   <span><b>{pair.fromRunName} ↔ {pair.toRunName}</b><small>{comparisonDirection(pair)}</small></span>
@@ -990,11 +1003,9 @@ function Results({ book, solvedRuns, updateBook }) {
         </div>
       </div>
       <div className="result-area" data-result-area="adjustment">
-        <div className="result-area-heading"><BarChart2 aria-hidden="true" /><div><h3>Bình sai lưới</h3></div></div>
         <NetworkAdjustment network={network} />
         <div className="card tolerance-card">
           <label>Hệ số C <span>mm/√km</span><input className="numeric" inputMode="decimal" value={coefficient} onChange={(event) => updateBook((previous) => ({ ...previous, settings: { ...previous.settings, toleranceCoefficient: event.target.value } }))} /></label>
-          <p className="note">C là tham số kiểm tra sai số khép; bình sai lưới chỉ dùng các trị đo điểm chuyền liên kết.</p>
         </div>
       </div>
     </section>
@@ -1004,7 +1015,7 @@ function Results({ book, solvedRuns, updateBook }) {
 function NetworkAdjustment({ network }) {
   return (
     <div className="card network-adjustment">
-      <h3>Bình sai lưới độ cao</h3>
+      <h3>Bình sai lưới</h3>
       {!network.available ? (
         <>
           <div className="warning warning-card" role="status"><span className="warning-icon" aria-hidden="true"><TriangleAlert /></span><span>{network.reason}</span></div>
@@ -1012,7 +1023,7 @@ function NetworkAdjustment({ network }) {
         </>
       ) : (
         <>
-          <p className="note">{network.method}. Mốc chuẩn được giữ cố định; chỉ điểm chuyền tham gia phương trình. Tia phụ nhận cao độ suy ra từ điểm gốc sau bình sai.</p>
+          <details className="method-note"><summary>Phương pháp tính</summary><p>{network.method}. Mốc chuẩn được giữ cố định; chỉ điểm chuyền tham gia phương trình. Tia phụ cũ nhận cao độ suy ra từ điểm gốc sau bình sai.</p></details>
           <div className="metric"><div><span>Trị đo</span><b className="numeric">{network.observations}</b></div><div><span>Điểm cần tìm</span><b className="numeric">{network.unknowns}</b></div><div><span>Bậc tự do</span><b className="numeric">{network.degreesOfFreedom}</b></div></div>
           {network.degreesOfFreedom === 0 && <p className="warning">{OPEN_ROUTE_WARNING}</p>}
           {network.degreesOfFreedom > 0 && <div className="check"><b>Độ chính xác sau bình sai</b><span className="numeric">σ₀ = {formatMillimeters(network.sigma0)} {network.totalDistance === null ? 'mm' : 'mm/√km'} · |v|max = {formatMillimeters(network.maxCorrection)} mm</span></div>}
@@ -1051,30 +1062,25 @@ function SidePointTable({ points = [] }) {
 function Files({ book, books, library, updateBook, newBook, save, saveAs, exportExcel, exportPdf, backupAll, exporting, fileRef, importFile, availablePoints, setDialog, outdoor, setOutdoor }) {
   const [query, setQuery] = useState('');
   const filtered = books.filter((item) => item.name.toLocaleLowerCase('vi').includes(query.toLocaleLowerCase('vi')));
-  const totalStations = books.reduce((count, item) => count + item.runs.reduce((sum, run) => sum + run.stations.filter((station) => station.point).length, 0), 0);
   const fileActions = [
-    { label: 'Sổ mới', hint: 'Cất sổ hiện tại, bắt đầu mới', Icon: FilePlus2, onClick: newBook, primary: true },
-    { label: 'Nhập sổ', hint: 'Excel hoặc sao lưu JSON', Icon: Upload, onClick: () => fileRef.current.click() },
-    { label: 'Xuất Excel', hint: 'Số liệu & dữ liệu gốc', Icon: FileText, onClick: exportExcel },
-    { label: 'Xuất PDF', hint: 'Báo cáo để đối chiếu', Icon: Download, onClick: exportPdf },
-    { label: 'Lưu bản sao', hint: 'Giữ thêm một phiên bản', Icon: Copy, onClick: saveAs },
-    { label: 'Lưu ngay', hint: 'Ghi vào thiết bị', Icon: Save, onClick: save },
+    { label: 'Sổ mới', Icon: FilePlus2, onClick: newBook, primary: true },
+    { label: 'Nhập sổ', Icon: Upload, onClick: () => fileRef.current.click() },
+    { label: 'Xuất Excel', Icon: FileText, onClick: exportExcel },
+    { label: 'Xuất PDF', Icon: Download, onClick: exportPdf },
+    { label: 'Lưu bản sao', Icon: Copy, onClick: saveAs },
+    { label: 'Lưu ngay', Icon: Save, onClick: save },
   ];
   const activeHistory = library.checkpoints.filter((entry) => entry.book.id === book.id);
   return (
     <section className="files-shell">
-      <SectionHeading Icon={FolderOpen} eyebrow="Thư viện hiện trường" title="Sổ đo của bạn" description="Tự lưu trên thiết bị. Nhập sổ mới luôn giữ nguyên các sổ đã có." />
-      <div className="data-health"><div><span>Sổ trong thư viện</span><b className="numeric">{books.length}</b></div><div><span>Điểm đã ghi</span><b className="numeric">{totalStations}</b></div><div><span>Có thể khôi phục</span><b className="numeric">{library.trash.length}</b></div></div>
-      <div className="file-group-heading"><ShieldCheck aria-hidden="true" /><div><span>An toàn dữ liệu</span><h3>Sao lưu & phục hồi</h3></div></div>
-      <div className="card backup-card"><ShieldCheck /><div><h3>Mang theo một bản sao an toàn.</h3><p>Sao lưu toàn bộ sổ vào Tệp, Drive hoặc máy tính. Dữ liệu cục bộ có thể mất nếu gỡ ứng dụng hoặc xóa dữ liệu trình duyệt.</p></div><button className="primary" onClick={backupAll} disabled={Boolean(exporting)}><Download />Sao lưu tất cả</button></div>
-      <div className="file-group-heading"><BookOpen aria-hidden="true" /><div><span>Sổ hiện tại</span><h3>Quản lý & nhập xuất</h3></div></div>
+      <h2 className="page-title">Sổ & tệp</h2>
+      <div className="card backup-card"><ShieldCheck /><div><h3>Sao lưu dữ liệu</h3><p>Tạo một tệp chứa toàn bộ sổ và lịch sử khôi phục.</p></div><button className="primary" onClick={backupAll} disabled={Boolean(exporting)}><Download />Sao lưu</button></div>
       <div className="card current-book">
         <div className="card-heading"><span>Sổ đang mở</span><h3>{book.name}</h3></div>
-        <div className="file-actions">{fileActions.map(({ label, hint, Icon, onClick, primary }) => <button key={label} className={primary ? 'action-tile primary-tile' : 'action-tile'} onClick={onClick} disabled={Boolean(exporting)}><span className="action-icon" aria-hidden="true"><Icon /></span><span><b>{label}</b><small>{hint}</small></span></button>)}</div>
+        <div className="file-actions">{fileActions.map(({ label, Icon, onClick, primary }) => <button key={label} className={primary ? 'action-tile primary-tile' : 'action-tile'} onClick={onClick} disabled={Boolean(exporting)}><span className="action-icon" aria-hidden="true"><Icon /></span><b>{label}</b></button>)}</div>
         {exporting && <p role="status" className="note">Đang xử lý tệp…</p>}
         <input ref={fileRef} aria-label="Chọn tệp nhập sổ" hidden type="file" accept=".xlsx,.xls,.json" onChange={(event) => { const file = event.target.files?.[0]; if (file) importFile(file); event.target.value = ''; }} />
       </div>
-      <div className="file-group-heading"><Landmark aria-hidden="true" /><div><span>Điểm khống chế</span><h3>Mốc chuẩn</h3></div></div>
       <div className="card benchmark-section" id="benchmark-section" tabIndex={-1}>
         <div className="card-title"><div className="card-heading"><span>Điểm gốc của sổ</span><h3>Mốc chuẩn</h3></div><button className="compact-button" onClick={() => updateBook((previous) => ({ ...previous, benchmarks: [...previous.benchmarks, createBenchmark()] }))}><Plus />Thêm mốc</button></div>
         <div className="bench-labels" aria-hidden="true"><span>Tên mốc</span><span>Cao độ H (m)</span></div>
@@ -1087,7 +1093,6 @@ function Files({ book, books, library, updateBook, newBook, save, saveAs, export
         </div>)}
         {!book.benchmarks.length && <p className="empty">Thêm mốc có cao độ biết trước để tính cao độ của tuyến.</p>}
       </div>
-      <div className="file-group-heading"><FolderOpen aria-hidden="true" /><div><span>Trên thiết bị</span><h3>Quản lý sổ</h3></div></div>
       <div className="card">
         <div className="card-title"><div className="card-heading"><span>Tất cả sổ đo</span><h3>Thư viện thiết bị</h3></div><span className="session-pill">{books.length} sổ</span></div>
         <label className="library-tools"><Search /><input type="search" aria-label="Tìm sổ" placeholder="Tìm theo tên sổ…" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
@@ -1106,7 +1111,6 @@ function Files({ book, books, library, updateBook, newBook, save, saveAs, export
         {library.trash.map((entry) => <div className="saved" key={entry.id}><div><b>{entry.book.name}</b><small>{new Date(entry.deletedAt).toLocaleString('vi-VN')}</small></div><button onClick={() => library.restoreDeleted(entry.id)}>Khôi phục sổ</button></div>)}
         {!library.trash.length && <p className="empty">Chưa có sổ nào trong thùng rác.</p>}
       </div></details>
-      <div className="file-group-heading"><Settings2 aria-hidden="true" /><div><span>Khả năng đọc</span><h3>Cài đặt hiển thị</h3></div></div>
       <details className="card field-settings"><summary><Settings2 />Ngưỡng nhắc nhập liệu</summary>
         <label className="setting-row outdoor-setting"><span><b>Chế độ ngoài trời</b><small>Tăng cỡ số và tương phản để đọc dưới nắng</small></span><input type="checkbox" aria-label="Bật chế độ ngoài trời" checked={outdoor} onChange={(event) => setOutdoor(event.target.checked)} /></label>
         <p className="note">Các ngưỡng do người đo đặt để phát hiện nhập nhầm; không phải tiêu chuẩn nghiệm thu. Nhập 0 để tắt từng nhắc.</p>

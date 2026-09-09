@@ -128,8 +128,8 @@ function envelope(books, activeBookId, checkpoints = []) {
   return { format: LIBRARY_FORMAT, schemaVersion: LIBRARY_SCHEMA_VERSION, revision: 0, books, activeBookId, trash: [], checkpoints, updatedAt: Date.now() };
 }
 
-function checkpoint(book, reason) {
-  return { id: uid(), book: clone(book), createdAt: Date.now(), reason };
+function checkpoint(book, reason, metadata = {}) {
+  return { id: uid(), book: clone(book), createdAt: Date.now(), reason, ...metadata };
 }
 
 function withCheckpoint(library, book, reason) {
@@ -423,9 +423,23 @@ export function createNotebookLibrary(storage = defaultStorage()) {
           books: [book, ...state.books], activeBookId: book.id };
       });
     },
+    undoCheckpoint(id) {
+      const entry = library.checkpoints.find((item) => item.id === id && item.book.id === library.activeBookId && item.kind !== 'undo-backup');
+      if (!entry) return report(new Error('Không tìm thấy thay đổi gần nhất để hoàn tác.'));
+      return commitTransition((state) => {
+        const current = currentBook();
+        const restored = { ...clone(entry.book), id: current.id, updatedAt: Date.now() };
+        const undoBackup = checkpoint(current, 'Bản trước khi hoàn tác', { kind: 'undo-backup' });
+        return {
+          ...state,
+          books: state.books.map((book) => book.id === current.id ? restored : book),
+          checkpoints: [undoBackup, ...state.checkpoints.filter((item) => item.id !== entry.id)].slice(0, CHECKPOINT_LIMIT),
+        };
+      });
+    },
     exportBackup() {
       try {
-        return JSON.stringify({ format: BACKUP_FORMAT, schemaVersion: LIBRARY_SCHEMA_VERSION, appVersion: '2.8.0', exportedAt: new Date().toISOString(),
+        return JSON.stringify({ format: BACKUP_FORMAT, schemaVersion: LIBRARY_SCHEMA_VERSION, appVersion: '2.8.1', exportedAt: new Date().toISOString(),
           library, ...(loaded.unreadableSources.length ? { unreadableSources: loaded.unreadableSources } : {}) }, null, 2);
       } catch (cause) { report(cause); return ''; }
     },

@@ -261,6 +261,23 @@ describe('thư viện tự lưu và nhập tệp an toàn', () => {
     expect(store.getSnapshot().books.find((book) => book.id === original.id)).toEqual(original);
   });
 
+  it('hoàn tác tại chỗ giữ bản dữ liệu hiện tại để có thể phục hồi', () => {
+    const storage = memoryStorage();
+    const store = createNotebookLibrary(storage);
+    store.initialize();
+    store.updateBook({ name: 'Trước khi lưu trạm' });
+    store.updateBook({ name: 'Sau khi lưu trạm' }, { checkpoint: 'Hoàn tất trạm' });
+    const currentId = store.getSnapshot().book.id;
+    const entry = store.getSnapshot().checkpoints.find((item) => item.reason === 'Hoàn tất trạm');
+
+    expect(store.undoCheckpoint(entry.id)).toBe(true);
+    expect(store.getSnapshot().book.id).toBe(currentId);
+    expect(store.getSnapshot().book.name).toBe('Trước khi lưu trạm');
+    expect(store.getSnapshot().checkpoints[0]).toMatchObject({ reason: 'Bản trước khi hoàn tác', kind: 'undo-backup' });
+    expect(store.getSnapshot().checkpoints[0].book.name).toBe('Sau khi lưu trạm');
+    expect(createNotebookLibrary(storage).getSnapshot().book.name).toBe('Trước khi lưu trạm');
+  });
+
   it('xóa trạm hoặc hoàn tất trạm chỉ được áp dụng khi lưu thành công', () => {
     const storage = memoryStorage();
     const store = createNotebookLibrary(storage);

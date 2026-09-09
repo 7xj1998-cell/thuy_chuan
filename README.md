@@ -2,6 +2,14 @@
 
 Ứng dụng ghi, tính và bình sai cao độ cho nhiều lượt đo độc lập, dùng chung mã nguồn cho web, iPhone và Android.
 
+## Phiên bản 2.8.1
+
+- Bỏ nút gợi ý nhanh “Chọn DC…” để tránh chạm nhầm; việc chọn điểm khống chế vẫn thực hiện chủ động trong ô Điểm tới.
+- Bỏ bộ chọn lượt khỏi tab Kết quả vì màn này tổng hợp toàn bộ lượt trong sổ.
+- Thêm nút Hoàn tác ngay trên màn Đo. Mỗi lần hoàn tác đều giữ một bản dữ liệu hiện tại trong Lịch sử khôi phục để có thể lấy lại nếu thao tác nhầm.
+- Tinh giản tab Kết quả và Sổ & tệp: loại tiêu đề lặp, giảm thẻ thông tin và mô tả dài, dùng nền trung tính; màu thương hiệu chỉ còn nhấn hành động hoặc trạng thái.
+- Giữ Biên độ (Max−Min) ở dạng chỉ số phụ để xem nhanh độ phân tán lớn nhất; chênh lệch từng cặp lượt vẫn là dữ liệu đối chiếu chính.
+
 ## Phiên bản 2.8.0
 
 - Sửa dứt điểm trạng thái hộp thoại **Cài đặt lượt / Chọn điểm xuất phát** theo `runId`; đổi tab, đổi lượt hoặc đổi sổ luôn đóng và đặt lại hộp thoại.

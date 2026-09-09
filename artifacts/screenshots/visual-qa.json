@@ -135,5 +135,17 @@
     "sheetsAfterOrigin": 1,
     "sheetsAfterTab": 0,
     "errors": []
+  },
+  "v2.8.1": {
+    "viewport": "414x896",
+    "resultRunPickerCount": 0,
+    "compareHeaderBackground": "rgb(248, 250, 252)",
+    "pairGroupsOpen": 3,
+    "visiblePairRows": 9,
+    "horizontalOverflow": false,
+    "tabChangeScrollY": 0,
+    "undoRestoredPreviousState": true,
+    "undoBackupPersisted": true,
+    "browserErrors": []
   }
 }
