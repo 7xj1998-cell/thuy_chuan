@@ -5,12 +5,16 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  CloudCheck,
   Copy,
   Crosshair,
   Download,
   FilePlus2,
   FileText,
   FolderOpen,
+  Gauge,
+  Landmark,
+  MapPin,
   PencilLine,
   Plus,
   Route as RouteIcon,
@@ -592,11 +596,11 @@ export default function App() {
     <div className="app-v3 app-v25 app-v27" data-outdoor={outdoor ? 'true' : 'false'}>
       <header className="workspace-header">
         <div className="brand-mark" aria-hidden="true"><img src="/level-mark.svg" alt="" /></div>
-        <div className="brand-copy"><div className="eyebrow">THỦY CHUẨN <span className="version-badge">2.7.1</span></div><h1>{book.name}</h1></div>
+        <div className="brand-copy"><div className="eyebrow">THỦY CHUẨN <span className="version-badge">2.7.2</span></div><h1>{book.name}</h1></div>
         <div className="workspace-status"><button className="iconbtn" onClick={renameBook} aria-label="Đổi tên sổ"><PencilLine /></button></div>
       </header>
       <main id="main-content" data-tab={tab}>
-        <div className="field-toolbar"><span><span className="status-dot" />Sổ đo hiện trường · m / mm</span><span className="save-indicator" data-state={library.saveState}><ShieldCheck size={14} />{saveLabel}</span></div>
+        <div className="field-toolbar"><span><span className="status-dot" />Sổ đo hiện trường · m / mm</span><span className="save-indicator" data-state={library.saveState}><CloudCheck size={14} />{saveLabel}</span></div>
         {library.storageError && <div className="storage-banner" role="alert"><TriangleAlert /><div><b>Cần bảo vệ dữ liệu</b><p>{library.storageError}</p><button onClick={backupAll} disabled={Boolean(exporting)}>Tải sao lưu ngay</button><button onClick={save}>Thử lưu lại</button></div></div>}
         {library.saveState === 'recovered' && !library.storageError && <p className="storage-banner" role="status">Đã khôi phục thư viện từ bản lưu an toàn gần nhất.</p>}
         {tab !== 'files' && <RunPicker runs={book.runs} solvedRuns={solvedRuns} runId={activeRun.id} onSelect={selectRun} onAdd={() => addRun()} />}
@@ -703,7 +707,7 @@ function Measure({ book, availablePoints, run, solved, index, setIndex, updateSt
       <div className={`measure-layout measure-only${run.startPoint ? '' : ' is-locked'}`} aria-hidden={!run.startPoint}>
         <div className="measure-primary">
           <div className="origin-card">
-            <span className="origin-icon" aria-hidden="true"><Crosshair /></span>
+            <span className="origin-icon" aria-hidden="true"><MapPin /></span>
             <span><small>Mốc xuất phát</small><b>{run.startPoint || 'Chưa chọn'}</b></span>
             <strong className="numeric">{findValidBenchmark(book, run.startPoint)?.elevation || '—'} <small>m</small></strong>
             <button type="button" onClick={onChangeOrigin}><PencilLine />Đổi mốc</button>
@@ -898,7 +902,7 @@ function Results({ book, solvedRuns, updateBook }) {
     <section className="result-shell">
       <SectionHeading Icon={BarChart2} eyebrow="Kết quả kỹ thuật" title="Kiểm tra & bình sai" description="Theo dõi sai số, độ chính xác và cao độ sau bình sai." />
       <div className="result-area" data-result-area="closure">
-        <div className="result-area-heading"><ShieldCheck aria-hidden="true" /><div><span>01</span><h3>Kiểm tra khép</h3></div></div>
+        <div className="result-area-heading"><Gauge aria-hidden="true" /><div><span>01</span><h3>Kiểm tra khép</h3></div></div>
         {solvedRuns.map((solved) => (
           <div className="card result-card" key={solved.runId}>
             <div className="card-heading"><span>Lượt đo</span><h3>{solved.runName}</h3></div>
@@ -1010,7 +1014,7 @@ function Files({ book, books, library, updateBook, newBook, save, saveAs, export
         {exporting && <p role="status" className="note">Đang xử lý tệp…</p>}
         <input ref={fileRef} aria-label="Chọn tệp nhập sổ" hidden type="file" accept=".xlsx,.xls,.json" onChange={(event) => { const file = event.target.files?.[0]; if (file) importFile(file); event.target.value = ''; }} />
       </div>
-      <div className="file-group-heading"><Crosshair aria-hidden="true" /><div><span>Điểm khống chế</span><h3>Mốc chuẩn</h3></div></div>
+      <div className="file-group-heading"><Landmark aria-hidden="true" /><div><span>Điểm khống chế</span><h3>Mốc chuẩn</h3></div></div>
       <div className="card benchmark-section" id="benchmark-section" tabIndex={-1}>
         <div className="card-title"><div className="card-heading"><span>Điểm gốc của sổ</span><h3>Mốc chuẩn</h3></div><button className="compact-button" onClick={() => updateBook((previous) => ({ ...previous, benchmarks: [...previous.benchmarks, createBenchmark()] }))}><Plus />Thêm mốc</button></div>
         <div className="bench-labels" aria-hidden="true"><span>Tên mốc</span><span>Cao độ H (m)</span></div>

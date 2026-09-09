@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef } from 'react';
-import { X, Activity, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { X, Activity, ShieldAlert, TriangleAlert } from 'lucide-react';
 import { formatElevation } from './units';
 
 export function ConfirmDialog({ title, description, messages = [], confirmLabel = 'Xác nhận', onConfirm, onClose }) {
@@ -61,7 +61,7 @@ export function QualityCard({ errors = [], warnings = [] }) {
   const issues = errors.length ? errors : warnings;
   if (!issues.length) return null;
   return <div className="quality-card" data-level={level} role={level === 'error' ? 'alert' : 'status'}>
-    <div className="card-title">{level === 'error' ? <TriangleAlert aria-hidden="true" /> : <ShieldCheck aria-hidden="true" />}<h3>{level === 'error' ? 'Chưa thể lưu trạm' : 'Cần xác nhận trước khi lưu'}</h3></div>
+    <div className="card-title">{level === 'error' ? <TriangleAlert aria-hidden="true" /> : <ShieldAlert aria-hidden="true" />}<h3>{level === 'error' ? 'Chưa thể lưu trạm' : 'Cần xác nhận trước khi lưu'}</h3></div>
     <ul>{issues.map((item, index) => <li key={`${item.field || 'issue'}-${index}`}>{item.message}</li>)}</ul>
   </div>;
 }

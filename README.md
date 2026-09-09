@@ -2,6 +2,11 @@
 
 Ứng dụng ghi, tính và bình sai cao độ cho nhiều lượt đo độc lập, dùng chung mã nguồn cho web, iPhone và Android.
 
+## Phiên bản 2.7.2
+
+- Chuẩn hóa icon theo từng ngữ nghĩa: lưu đám mây, kiểm tra kỹ thuật, cảnh báo xác nhận, mốc xuất phát và danh mục mốc chuẩn.
+- Giữ nguyên các icon đã nhất quán; xác minh trực quan trên tab Đo, Kết quả, Sổ & tệp và trạng thái cảnh báo.
+
 ## Phiên bản 2.7.1
 
 - Lược bỏ khối “Đọc nhanh tuyến đo / Mặt cắt cao độ” khỏi tab Đo để màn hình nhập liệu gọn hơn và tránh lặp nội dung.
