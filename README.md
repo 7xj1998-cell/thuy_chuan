@@ -2,6 +2,15 @@
 
 Ứng dụng ghi, tính và bình sai cao độ cho nhiều lượt đo độc lập, dùng chung mã nguồn cho web, iPhone và Android.
 
+## Phiên bản 2.8.0
+
+- Sửa dứt điểm trạng thái hộp thoại **Cài đặt lượt / Chọn điểm xuất phát** theo `runId`; đổi tab, đổi lượt hoặc đổi sổ luôn đóng và đặt lại hộp thoại.
+- Thêm lượt bắt đầu từ điểm chưa biết cao độ, lưu Δh/Δh tích lũy và tính ngược toàn tuyến khi gặp mốc khống chế cuối; schema v6 tự gán lượt cũ về chế độ mốc đầu đã biết.
+- Tên điểm trung gian tự sinh theo số lượt ổn định (`1.1`, `1.2`…), không đổi tên cũ khi sửa/xóa và không bị tên DC xen giữa làm nhảy số.
+- Luồng nhập mới chỉ tạo điểm chuyền; dữ liệu tia phụ cũ vẫn mở, tính và xuất báo cáo được.
+- Đối chiếu điểm chung tạo đủ mọi cặp lượt, hiển thị trị tuyệt đối, dấu và chiều cao hơn/thấp hơn trên app, Excel và PDF.
+- Giao diện hiện trường được nén gọn cho iPhone 11 Pro Max; sửa lớp vuốt-xóa, thêm PWA manifest và đồng bộ/cache-bust icon v2.8.0.
+
 ## Phiên bản 2.7.2
 
 - Chuẩn hóa icon theo từng ngữ nghĩa: lưu đám mây, kiểm tra kỹ thuật, cảnh báo xác nhận, mốc xuất phát và danh mục mốc chuẩn.

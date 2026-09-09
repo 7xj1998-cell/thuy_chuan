@@ -8,6 +8,7 @@ import {
   READING_FIELDS,
 } from './units';
 import {
+  isNamedControlPoint,
   normalizePointType,
   POINT_TYPE_SIDE,
   POINT_TYPE_TURNING,
@@ -20,10 +21,15 @@ export const STORAGE_KEYS = {
   exports: 'so-thuy-chuan.export-names.v2'
 };
 
+export const BOOK_SCHEMA_VERSION = 6;
+export const START_MODE_KNOWN = 'known';
+export const START_MODE_UNKNOWN = 'unknown';
+export const normalizeStartMode = (value) => value === START_MODE_UNKNOWN ? START_MODE_UNKNOWN : START_MODE_KNOWN;
+
 export const createBenchmark = (name = '', elevation = '') => ({ id: uid(), name: uppercaseName(name).trim(), elevation: String(elevation ?? '') });
 export const createStation = (point = '', pointType = POINT_TYPE_TURNING) => ({ id: uid(), point: uppercaseName(point).trim(), pointType: normalizePointType(pointType), bs: '', fs: '', distance: '', bsUpper: '', bsMiddle: '', bsLower: '', fsUpper: '', fsMiddle: '', fsLower: '' });
-export const createRun = (index = 1, startPoint = '') => ({ id: uid(), name: `Lượt ${index}`, roundNumber: index, startPoint: uppercaseName(startPoint).trim(), mode: 'single', stations: [createStation()] });
-export const createBook = () => ({ schemaVersion: 5, id: uid(), name: `Sổ ${new Date().toLocaleDateString('vi-VN')}`, benchmarks: [createBenchmark()], runs: [createRun()], settings: { toleranceCoefficient: '20' }, createdAt: Date.now(), updatedAt: Date.now() });
+export const createRun = (index = 1, startPoint = '', startMode = START_MODE_KNOWN) => ({ id: uid(), name: `Lượt ${index}`, roundNumber: index, startPoint: uppercaseName(startPoint).trim(), startMode: normalizeStartMode(startMode), mode: 'single', stations: [createStation()] });
+export const createBook = () => ({ schemaVersion: BOOK_SCHEMA_VERSION, id: uid(), name: `Sổ ${new Date().toLocaleDateString('vi-VN')}`, benchmarks: [createBenchmark()], runs: [createRun()], settings: { toleranceCoefficient: '20' }, createdAt: Date.now(), updatedAt: Date.now() });
 export const nextRunNumber = (runs = []) => Math.max(0, ...runs.map((run) => {
   const value = Number(run.roundNumber);
   return Number.isInteger(value) && value > 0 ? value : 0;
@@ -79,6 +85,15 @@ function migrateStoredBook(raw = {}) {
       })),
     };
   }
+  if (Number(source.schemaVersion) < 6) {
+    source = {
+      ...source,
+      schemaVersion: 6,
+      // Pre-v6 runs could only start from a benchmark with a known height.
+      // This default keeps every existing computation unchanged.
+      runs: (source.runs || []).map((run) => ({ ...run, startMode: START_MODE_KNOWN })),
+    };
+  }
   return source;
 }
 
@@ -86,14 +101,14 @@ export function normalizeBook(raw = {}) {
   const source = migrateStoredBook(raw);
   const base = createBook();
   const book = {
-    ...base, ...source, schemaVersion: 5, id: source.id || uid(),
+    ...base, ...source, schemaVersion: BOOK_SCHEMA_VERSION, id: source.id || uid(),
     benchmarks: (source.benchmarks || []).map((b) => {
       const canonicalElevation = canonicalBenchmarkElevationDraft(b.elevation);
       return { ...createBenchmark(), ...b, id: b.id || uid(), name: uppercaseName(b.name).trim(), elevation: canonicalElevation === null ? String(b.elevation ?? '') : canonicalElevation };
     }),
     runs: (source.runs || []).map((run, index) => {
       const storedRoundNumber = Number(run.roundNumber);
-      return { ...createRun(index + 1), ...run, id: run.id || uid(), roundNumber: Number.isInteger(storedRoundNumber) && storedRoundNumber > 0 ? storedRoundNumber : index + 1, startPoint: uppercaseName(run.startPoint).trim(), mode: run.mode === 'three' ? 'three' : 'single', stations: (run.stations || []).map((s) => ({ ...createStation(), ...s, id: s.id || uid(), point: uppercaseName(s.point).trim(), pointType: normalizePointType(s.pointType) })) };
+      return { ...createRun(index + 1), ...run, id: run.id || uid(), roundNumber: Number.isInteger(storedRoundNumber) && storedRoundNumber > 0 ? storedRoundNumber : index + 1, startPoint: uppercaseName(run.startPoint).trim(), startMode: normalizeStartMode(run.startMode), mode: run.mode === 'three' ? 'three' : 'single', stations: (run.stations || []).map((s) => ({ ...createStation(), ...s, id: s.id || uid(), point: uppercaseName(s.point).trim(), pointType: normalizePointType(s.pointType) })) };
     }),
     settings: { ...base.settings, ...(source.settings || {}) }, createdAt: source.createdAt || Date.now(), updatedAt: source.updatedAt || Date.now()
   };
@@ -125,6 +140,7 @@ export function stationReadings(station, mode) {
 
 export function solveRun(run, benchmarks) {
   const startPoint = uppercaseName(run.startPoint).trim();
+  const startMode = normalizeStartMode(run.startMode);
   const pointStates = [{ name: startPoint, relative: 0, index: 0, pointType: POINT_TYPE_TURNING }];
   const chainStates = [pointStates[0]];
   const readingRows = [];
@@ -148,13 +164,16 @@ export function solveRun(run, benchmarks) {
   const known = new Map();
   benchmarks.forEach((b) => { const name = uppercaseName(b.name).trim(), elevation = metersToMillimeters(b.elevation); if (name && elevation !== null) known.set(name, elevation); });
   const anchors = [];
-  chainStates.forEach((state) => { if (state.name && known.has(state.name) && state.relative !== null) anchors.push({ ...state, known: known.get(state.name) }); });
+  chainStates.forEach((state) => {
+    const unknownOrigin = startMode === START_MODE_UNKNOWN && state.index === 0;
+    if (!unknownOrigin && state.name && known.has(state.name) && state.relative !== null) anchors.push({ ...state, known: known.get(state.name) });
+  });
   const primary = anchors[0] || null;
   const offset = primary ? primary.known - primary.relative : null;
   const elevationOf = (relative) => relative === null || offset === null ? null : relative + offset;
   const rows = readingRows.map((row) => {
     const fromElevation = elevationOf(row.fromRelative);
-    return { ...row, fromElevation, elevation: elevationOf(row.relative), hi: fromElevation !== null && row.bs !== null ? fromElevation + row.bs : null };
+    return { ...row, cumulativeDelta: row.relative, fromElevation, elevation: elevationOf(row.relative), hi: fromElevation !== null && row.bs !== null ? fromElevation + row.bs : null };
   });
   const points = pointStates.map((state) => ({ ...state, elevation: elevationOf(state.relative) }));
   const chainPoints = chainStates.map((state) => ({ ...state, elevation: elevationOf(state.relative) }));
@@ -168,6 +187,8 @@ export function solveRun(run, benchmarks) {
   return {
     runId: run.id,
     runName: run.name,
+    roundNumber: run.roundNumber,
+    startMode,
     points,
     chainPoints,
     rows,
@@ -176,6 +197,9 @@ export function solveRun(run, benchmarks) {
     anchors,
     checks,
     solved: offset !== null,
+    controlPoint: primary?.name || null,
+    reverseAnchored: Boolean(primary && !known.has(startPoint)),
+    startElevation: elevationOf(0),
     endPoint: origin.name,
     endElevation: elevationOf(origin.relative),
     totalDistance: fullDistance ? chainRows.reduce((sum, row) => sum + row.distance, 0) : null,
@@ -187,20 +211,36 @@ export function solveRun(run, benchmarks) {
   };
 }
 
-export function compareRuns(solvedRuns) {
+export function compareRuns(solvedRuns, benchmarks = []) {
   const groups = new Map();
+  const benchmarkNames = new Set(benchmarks.map((benchmark) => uppercaseName(benchmark.name).trim()).filter(Boolean));
   solvedRuns.forEach((run) => {
     const seen = new Set();
     (run.chainPoints || run.points.filter((point) => point.pointType !== POINT_TYPE_SIDE))
-      .filter((point) => point.name && point.elevation !== null)
+      .filter((point) => point.name && point.elevation !== null && (benchmarkNames.has(point.name) || isNamedControlPoint(point.name)))
       .forEach((point) => {
         if (seen.has(point.name)) return;
         seen.add(point.name);
         if (!groups.has(point.name)) groups.set(point.name, []);
-        groups.get(point.name).push({ runId: run.runId, runName: run.runName, elevation: point.elevation });
+        groups.get(point.name).push({ runId: run.runId, runName: run.runName, roundNumber: run.roundNumber, elevation: point.elevation });
       });
   });
-  return [...groups.entries()].map(([name, values]) => { const elevations = values.map((v) => v.elevation); return { name, values, min: Math.min(...elevations), max: Math.max(...elevations), spread: Math.max(...elevations) - Math.min(...elevations) }; }).filter((group) => group.values.length >= 2).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+  return [...groups.entries()].map(([name, sourceValues]) => {
+    const values = [...sourceValues].sort((left, right) => (left.roundNumber || 0) - (right.roundNumber || 0)
+      || left.runName.localeCompare(right.runName, 'vi', { numeric: true }));
+    const elevations = values.map((value) => value.elevation);
+    const pairs = [];
+    for (let fromIndex = 0; fromIndex < values.length; fromIndex += 1) {
+      for (let toIndex = fromIndex + 1; toIndex < values.length; toIndex += 1) {
+        const from = values[fromIndex], to = values[toIndex];
+        const difference = Math.round(to.elevation - from.elevation);
+        pairs.push({ fromRunId: from.runId, fromRunName: from.runName, toRunId: to.runId, toRunName: to.runName,
+          difference, absoluteDifference: Math.abs(difference) });
+      }
+    }
+    return { name, values, pairs, min: Math.min(...elevations), max: Math.max(...elevations),
+      spread: Math.round(Math.max(...elevations) - Math.min(...elevations)) };
+  }).filter((group) => group.values.length >= 2).sort((a, b) => a.name.localeCompare(b.name, 'vi', { numeric: true }));
 }
 
 export function adjustSolvedRun(solved, coefficient = 20) {
@@ -341,7 +381,9 @@ export function finalizeStation(run, stationIndex, fallbackPoint = '') {
   const pointType = normalizePointType(station.pointType);
   const stations = run.stations.map((item, index) => index === stationIndex ? { ...item, point, pointType } : item);
   const appended = stationIndex === stations.length - 1;
-  if (appended) stations.push(createStation('', pointType));
+  // New observations always continue as turning points. A legacy side shot can
+  // still be opened and saved, but it never propagates into newly created data.
+  if (appended) stations.push(createStation('', POINT_TYPE_TURNING));
   return { committed: true, stations, nextIndex: appended ? stations.length - 1 : stationIndex + 1, point, pointType, appended };
 }
 

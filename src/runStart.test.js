@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createBook, createRun, createStation, normalizeBook, solveRun } from './model';
+import { createBook, createRun, createStation, normalizeBook, solveRun, START_MODE_KNOWN, START_MODE_UNKNOWN } from './model';
 import {
   changeRunStartPoint,
+  changeRunUnknownStart,
   createUnstartedRun,
   findValidBenchmark,
   runHasReadings,
@@ -78,8 +79,9 @@ describe('chọn mốc xuất phát theo từng lượt', () => {
         { ...createRun(2, 'DG2'), id: 'run-2' },
       ],
     });
-    expect(restored.schemaVersion).toBe(5);
+    expect(restored.schemaVersion).toBe(6);
     expect(restored.runs.map((run) => run.startPoint)).toEqual(['DG1', 'DG2']);
+    expect(restored.runs.every((run) => run.startMode === START_MODE_KNOWN)).toBe(true);
   });
 
   it('từ chối đổi sang mốc không có cao độ', () => {
@@ -93,5 +95,12 @@ describe('chọn mốc xuất phát theo từng lượt', () => {
     const restored = normalizeBook({ schemaVersion: 5, benchmarks: [{ id: 'a', name: 'A1', elevation: '1,000' }], runs: [] });
     expect(restored.runs).toHaveLength(1);
     expect(restored.runs[0].startPoint).toBe('');
+  });
+
+  it('cho phép điểm đầu chưa biết mà không cần nằm trong danh sách mốc', () => {
+    const book = surveyBook();
+    const changed = changeRunUnknownStart(book, 'run-1', 'mốc sứ 01');
+    expect(changed.runs[0]).toMatchObject({ startPoint: 'MỐC SỨ 01', startMode: START_MODE_UNKNOWN });
+    expect(solveRun(changed.runs[0], changed.benchmarks).solved).toBe(false);
   });
 });

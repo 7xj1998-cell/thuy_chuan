@@ -14,9 +14,11 @@ describe('cấu trúc giao diện mobile', () => {
     };
   });
 
-  it('tách nhãn, select và mô tả tuyến thành các phần tử theo luồng tài liệu', () => {
+  it('đặt bộ reng lượt, trạng thái lưu và cài đặt trong một hàng gọn', () => {
     const html = renderToStaticMarkup(<App />);
-    expect(html).toMatch(/runselect-label[^>]*>Lượt đo đang dùng<\/span><select[\s\S]*?<\/select><small class="runselect-meta"/);
+    expect(html).toContain('class="measure-run-header"');
+    expect(html).toContain('Chọn lượt đo');
+    expect(html).toContain('Cài đặt Lượt 1');
   });
 
   it('khởi tạo sổ trống không chứa điểm mẫu DG3 hoặc DG4', () => {
@@ -25,25 +27,21 @@ describe('cấu trúc giao diện mobile', () => {
     expect(html).not.toContain('DG4');
   });
 
-  it('dùng đầu vào mét, khoảng cách tùy chọn và thuật ngữ H_tia', () => {
+  it('dùng đầu vào mét, khoảng cách tùy chọn và chênh cao tích lũy', () => {
     const html = renderToStaticMarkup(<App />);
     expect(html).toContain('Số đọc mia sau BS theo mét');
     expect(html).toContain('placeholder="0,000"');
-    expect(html).toContain('Định dạng:');
-    expect(html).toContain('2,000');
     expect(html).toContain('placeholder="Nhập khoảng cách (m)..."');
-    expect(html).toContain('Cao độ tia ngắm (H');
+    expect(html).toContain('Chênh cao tích lũy');
     expect(html).not.toContain('Cao máy · HI');
   });
 
-  it('hiển thị toggle ĐC/TP, combobox và ghost name tự động trên màn hình Đo', () => {
+  it('bỏ lựa chọn Tia phụ khỏi luồng mới, giữ combobox và ghost name theo lượt', () => {
     const html = renderToStaticMarkup(<App />);
-    expect(html).toContain('Chọn loại điểm tới');
-    expect(html).toContain('Điểm chuyền');
-    expect(html).toContain('Tia phụ');
+    expect(html).not.toContain('Chọn loại điểm tới');
     expect(html).toContain('role="combobox"');
     expect(html).toContain('aria-autocomplete="list"');
-    expect(html).toContain('placeholder="DC1"');
+    expect(html).toContain('placeholder="1.1"');
   });
 
   it('hiển thị dữ liệu cũ 2000.000 thành số đọc 2,000 m', () => {
@@ -77,15 +75,16 @@ describe('cấu trúc giao diện mobile', () => {
       runs: [{ id: 'r1', name: 'Lượt 1', roundNumber: 1, startPoint: '', mode: 'single', stations: [{ id: 's1', point: '', pointType: 'turning' }] }],
     }));
     const html = renderToStaticMarkup(<App />);
-    expect(html).toContain('Chọn mốc xuất phát');
-    expect(html).toContain('Tìm nhanh theo tên mốc');
+    expect(html).toContain('Điểm xuất phát');
+    expect(html).toContain('Mốc đầu đã biết');
+    expect(html).toContain('Mốc đầu chưa biết');
     expect(html).toContain('DG1');
     expect(html).toContain('DG2');
     expect(html).toContain('0,000');
     expect(html).not.toContain('Cao độ gốc theo mét');
   });
 
-  it('hiển thị thẻ mốc và nút đổi mốc ngay trên màn hình Đo', () => {
+  it('hiển thị gọn điểm đặt mia sau, cao độ và nút cài đặt lượt', () => {
     localStorage.setItem('so-thuy-chuan.active-draft.v2', JSON.stringify({
       schemaVersion: 5,
       id: 'book-origin',
@@ -94,9 +93,9 @@ describe('cấu trúc giao diện mobile', () => {
       runs: [{ id: 'r1', name: 'Lượt 1', roundNumber: 1, startPoint: 'A1', mode: 'single', stations: [{ id: 's1', point: '', pointType: 'turning' }] }],
     }));
     const html = renderToStaticMarkup(<App />);
-    expect(html).toContain('Mốc xuất phát');
+    expect(html).toContain('Điểm đặt mia sau');
     expect(html).toContain('2,345');
-    expect(html).toContain('Đổi mốc');
+    expect(html).toContain('Cài đặt Lượt 1');
   });
 
   it('hiện thông báo lỗi rõ ràng khi số đọc không hợp lệ trước lúc lưu', () => {

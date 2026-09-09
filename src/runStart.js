@@ -1,5 +1,5 @@
 import { uppercaseName } from './calc';
-import { createRun, nextRunNumber } from './model';
+import { createRun, nextRunNumber, START_MODE_KNOWN, START_MODE_UNKNOWN } from './model';
 import { canonicalBenchmarkElevationDraft, READING_FIELDS } from './units';
 
 export function validBenchmarks(book) {
@@ -33,7 +33,18 @@ export function changeRunStartPoint(book, runId, benchmarkName) {
   return {
     ...book,
     runs: book.runs.map((run) => run.id === runId
-      ? { ...run, startPoint: benchmark.name }
+      ? { ...run, startPoint: benchmark.name, startMode: START_MODE_KNOWN }
+      : run),
+  };
+}
+
+export function changeRunUnknownStart(book, runId, pointName) {
+  const name = uppercaseName(pointName).trim();
+  if (!name) return book;
+  return {
+    ...book,
+    runs: book.runs.map((run) => run.id === runId
+      ? { ...run, startPoint: name, startMode: START_MODE_UNKNOWN }
       : run),
   };
 }

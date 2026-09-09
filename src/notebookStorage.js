@@ -1,5 +1,5 @@
 import { uid } from './calc';
-import { createBook, migrateLegacyBook, normalizeBook, STORAGE_KEYS } from './model';
+import { BOOK_SCHEMA_VERSION, createBook, migrateLegacyBook, normalizeBook, STORAGE_KEYS } from './model';
 
 export const LIBRARY_KEYS = {
   primary: 'so-thuy-chuan.library.v5',
@@ -9,6 +9,7 @@ export const LIBRARY_KEYS = {
 export const CHECKPOINT_LIMIT = 12;
 const LIBRARY_FORMAT = 'so-thuy-chuan.library';
 const BACKUP_FORMAT = 'so-thuy-chuan.backup';
+const LIBRARY_SCHEMA_VERSION = 6;
 const clone = (value) => structuredClone(value);
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const fail = (message) => { throw new Error(message); };
@@ -39,7 +40,7 @@ function checkIds(items, label, required = false) {
 // become a seemingly valid empty book and overwrite useful field measurements.
 function validateBook(raw) {
   if (!isObject(raw) || !Array.isArray(raw.benchmarks) || !Array.isArray(raw.runs)) fail('Sổ không có cấu trúc mốc chuẩn và lượt đo hợp lệ.');
-  if (raw.schemaVersion !== undefined && (!Number.isInteger(raw.schemaVersion) || raw.schemaVersion < 2 || raw.schemaVersion > 5)) fail('Phiên bản dữ liệu sổ chưa được hỗ trợ.');
+  if (raw.schemaVersion !== undefined && (!Number.isInteger(raw.schemaVersion) || raw.schemaVersion < 2 || raw.schemaVersion > BOOK_SCHEMA_VERSION)) fail('Phiên bản dữ liệu sổ chưa được hỗ trợ.');
   checkText(raw.id, 'Mã sổ');
   checkText(raw.name, 'Tên sổ');
   if (raw.settings !== undefined && !isObject(raw.settings)) fail('Thiết lập sổ không hợp lệ.');
@@ -54,6 +55,7 @@ function validateBook(raw) {
     if (!isObject(run) || !Array.isArray(run.stations)) fail('Lượt đo không có danh sách trạm hợp lệ.');
     checkText(run.name, 'Tên lượt');
     checkText(run.startPoint, 'Điểm đầu');
+    if (run.startMode !== undefined && !['known', 'unknown'].includes(run.startMode)) fail('Kiểu mốc xuất phát không hợp lệ.');
     if (run.mode !== undefined && !['single', 'three'].includes(run.mode)) fail('Chế độ đo không hợp lệ.');
     checkIds(run.stations, 'Trạm đo');
     run.stations.forEach((station) => {
@@ -85,7 +87,7 @@ function importBook(raw) {
 }
 
 function validateLibrary(library) {
-  if (!isObject(library) || library.format !== LIBRARY_FORMAT || library.schemaVersion !== 5
+  if (!isObject(library) || library.format !== LIBRARY_FORMAT || ![5, LIBRARY_SCHEMA_VERSION].includes(library.schemaVersion)
     || !Array.isArray(library.books) || !library.books.length
     || !Array.isArray(library.trash) || !Array.isArray(library.checkpoints)
     || !Number.isInteger(library.revision) || library.revision < 0) fail('Thư viện sổ không đúng định dạng.');
@@ -112,8 +114,18 @@ function validateLibrary(library) {
   return library;
 }
 
+function normalizeLibrary(library) {
+  return {
+    ...clone(library),
+    schemaVersion: LIBRARY_SCHEMA_VERSION,
+    books: library.books.map((book) => normalizeBook(book)),
+    trash: library.trash.map((entry) => ({ ...clone(entry), book: normalizeBook(entry.book) })),
+    checkpoints: library.checkpoints.map((entry) => ({ ...clone(entry), book: normalizeBook(entry.book) })),
+  };
+}
+
 function envelope(books, activeBookId, checkpoints = []) {
-  return { format: LIBRARY_FORMAT, schemaVersion: 5, revision: 0, books, activeBookId, trash: [], checkpoints, updatedAt: Date.now() };
+  return { format: LIBRARY_FORMAT, schemaVersion: LIBRARY_SCHEMA_VERSION, revision: 0, books, activeBookId, trash: [], checkpoints, updatedAt: Date.now() };
 }
 
 function checkpoint(book, reason) {
@@ -148,12 +160,18 @@ function loadLibrary(storage) {
     return { library: empty(), primaryRaw, blocked: true, error: 'Không thể đọc bộ nhớ thiết bị. Dữ liệu cũ chưa bị thay đổi.', unreadableSources };
   }
   if (primaryRaw !== null) {
-    try { return { library: validateLibrary(JSON.parse(primaryRaw)), primaryRaw, persisted: true, unreadableSources }; }
+    try {
+      const parsed = validateLibrary(JSON.parse(primaryRaw));
+      const needsMigration = parsed.schemaVersion !== LIBRARY_SCHEMA_VERSION
+        || [...parsed.books, ...parsed.trash.map((entry) => entry.book), ...parsed.checkpoints.map((entry) => entry.book)]
+          .some((book) => book.schemaVersion !== BOOK_SCHEMA_VERSION);
+      return { library: normalizeLibrary(parsed), primaryRaw, persisted: !needsMigration, unreadableSources };
+    }
     catch { unreadableSources.push({ key: LIBRARY_KEYS.primary, raw: primaryRaw }); }
   }
   if (previousRaw !== null) {
     try {
-      const library = validateLibrary(JSON.parse(previousRaw));
+      const library = normalizeLibrary(validateLibrary(JSON.parse(previousRaw)));
       return { library, primaryRaw, recovered: true, unreadableSources,
         error: 'Đã phục hồi bản lưu tốt gần nhất. Bản dữ liệu bị lỗi được giữ riêng; hãy kiểm tra trạm cuối và xuất sao lưu.' };
     } catch { unreadableSources.push({ key: LIBRARY_KEYS.previous, raw: previousRaw }); }
@@ -216,11 +234,11 @@ function parseImport(input) {
     try { raw = JSON.parse(raw); } catch { fail('File JSON không hợp lệ. Các sổ hiện tại vẫn được giữ nguyên.'); }
   }
   if (isObject(raw) && raw.format === BACKUP_FORMAT) {
-    if (raw.schemaVersion !== 5) fail('Phiên bản sao lưu chưa được hỗ trợ.');
+    if (![5, LIBRARY_SCHEMA_VERSION].includes(raw.schemaVersion)) fail('Phiên bản sao lưu chưa được hỗ trợ.');
     raw = raw.library;
   }
   if (isObject(raw) && raw.format === LIBRARY_FORMAT) {
-    const library = validateLibrary(raw);
+    const library = normalizeLibrary(validateLibrary(raw));
     // Normalize only at import boundaries, never while typing numeric drafts.
     return { ...clone(library), books: library.books.map(importBook),
       trash: library.trash.map((entry) => ({ ...clone(entry), book: importBook(entry.book) })),
@@ -407,7 +425,7 @@ export function createNotebookLibrary(storage = defaultStorage()) {
     },
     exportBackup() {
       try {
-        return JSON.stringify({ format: BACKUP_FORMAT, schemaVersion: 5, appVersion: '2.7.2', exportedAt: new Date().toISOString(),
+        return JSON.stringify({ format: BACKUP_FORMAT, schemaVersion: LIBRARY_SCHEMA_VERSION, appVersion: '2.8.0', exportedAt: new Date().toISOString(),
           library, ...(loaded.unreadableSources.length ? { unreadableSources: loaded.unreadableSources } : {}) }, null, 2);
       } catch (cause) { report(cause); return ''; }
     },

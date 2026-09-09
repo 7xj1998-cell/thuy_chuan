@@ -78,6 +78,24 @@ describe('thư viện tự lưu và nhập tệp an toàn', () => {
     expect(createNotebookLibrary(storage).getSnapshot().book.name).toBe('Sổ đang nhập');
   });
 
+  it('nâng thư viện v5 lên v6 an toàn và có thể chạy migration nhiều lần', () => {
+    const storage = memoryStorage();
+    const initial = createNotebookLibrary(storage);
+    initial.initialize();
+    const old = saved(storage);
+    old.schemaVersion = 5;
+    old.books = old.books.map((book) => ({ ...book, schemaVersion: 5, runs: book.runs.map(({ startMode: _removed, ...run }) => run) }));
+    storage.setItem(LIBRARY_KEYS.primary, JSON.stringify(old));
+    const migrated = createNotebookLibrary(storage);
+    expect(migrated.initialize()).toBe(true);
+    expect(saved(storage).schemaVersion).toBe(6);
+    expect(active(storage).schemaVersion).toBe(6);
+    expect(active(storage).runs.every((run) => run.startMode === 'known')).toBe(true);
+    const once = storage.getItem(LIBRARY_KEYS.primary);
+    expect(createNotebookLibrary(storage).initialize()).toBe(true);
+    expect(storage.getItem(LIBRARY_KEYS.primary)).toBe(once);
+  });
+
   it('không bỏ sót hai sổ cũ có ID trùng nhau và một nháp độc lập', () => {
     const first = measuredBook('Đo buổi sáng');
     const second = { ...first, name: 'Đo buổi chiều' };

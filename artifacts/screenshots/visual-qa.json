@@ -1,8 +1,5 @@
 {
   "localErrors": [],
-  "deployedErrors": [
-    "Failed to load resource: the server responded with a status of 404 ()"
-  ],
   "responsive": [
     {
       "viewport": "360x800",
@@ -11,12 +8,12 @@
       "outdoor": "true",
       "dock": {
         "x": 0,
-        "y": 636,
+        "y": 649,
         "width": 360,
-        "height": 90,
-        "top": 636,
+        "height": 76,
+        "top": 649,
         "right": 360,
-        "bottom": 726,
+        "bottom": 725,
         "left": 0
       },
       "tabs": {
@@ -28,7 +25,10 @@
         "right": 360,
         "bottom": 800,
         "left": 0
-      }
+      },
+      "primaryBottom": 683.328125,
+      "primaryVisibleWithoutScroll": false,
+      "dockAboveTabs": true
     },
     {
       "viewport": "375x812",
@@ -37,12 +37,12 @@
       "outdoor": "true",
       "dock": {
         "x": 0,
-        "y": 648,
+        "y": 661,
         "width": 375,
-        "height": 90,
-        "top": 648,
+        "height": 76,
+        "top": 661,
         "right": 375,
-        "bottom": 738,
+        "bottom": 737,
         "left": 0
       },
       "tabs": {
@@ -54,33 +54,39 @@
         "right": 375,
         "bottom": 812,
         "left": 0
-      }
+      },
+      "primaryBottom": 622.78125,
+      "primaryVisibleWithoutScroll": true,
+      "dockAboveTabs": true
     },
     {
-      "viewport": "412x915",
-      "width": 412,
+      "viewport": "414x896",
+      "width": 414,
       "overflow": false,
       "outdoor": "true",
       "dock": {
         "x": 0,
-        "y": 751,
-        "width": 412,
-        "height": 90,
-        "top": 751,
-        "right": 412,
-        "bottom": 841,
+        "y": 745,
+        "width": 414,
+        "height": 76,
+        "top": 745,
+        "right": 414,
+        "bottom": 821,
         "left": 0
       },
       "tabs": {
         "x": 0,
-        "y": 840,
-        "width": 412,
+        "y": 821,
+        "width": 414,
         "height": 75,
-        "top": 840,
-        "right": 412,
-        "bottom": 915,
+        "top": 821,
+        "right": 414,
+        "bottom": 896,
         "left": 0
-      }
+      },
+      "primaryBottom": 622.78125,
+      "primaryVisibleWithoutScroll": true,
+      "dockAboveTabs": true
     },
     {
       "viewport": "1280x900",
@@ -106,7 +112,10 @@
         "right": 885,
         "bottom": 882,
         "left": 395
-      }
+      },
+      "primaryBottom": 648.078125,
+      "primaryVisibleWithoutScroll": true,
+      "dockAboveTabs": true
     },
     {
       "routeCards": 100,
@@ -117,5 +126,14 @@
       "bottomDisplay": "none",
       "dockPosition": "fixed"
     }
-  ]
+  ],
+  "dialogs": {
+    "settingsOpened": true,
+    "renamed": "Lượt hiện trường",
+    "settingsAfterOrigin": 0,
+    "originOpened": true,
+    "sheetsAfterOrigin": 1,
+    "sheetsAfterTab": 0,
+    "errors": []
+  }
 }

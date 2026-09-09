@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { adjustLevelingNetwork, adjustSolvedRun, compareRuns, createBook, createRun, createStation, finalizeStation, nextRunNumber, normalizeBook, removeStation, restoreStation, saveAsCopy, solveRun, staffDistance } from './model';
+import { adjustLevelingNetwork, adjustSolvedRun, compareRuns, createBook, createRun, createStation, finalizeStation, nextRunNumber, normalizeBook, removeStation, restoreStation, saveAsCopy, solveRun, staffDistance, START_MODE_KNOWN, START_MODE_UNKNOWN } from './model';
 import { POINT_TYPE_SIDE } from './pointNames';
 
 const benchmarks = [{ name: 'DG3', elevation: '2,222' }, { name: 'DG4', elevation: '1,641' }];
 const makeRun = (startPoint, points, deltas) => ({ ...createRun(1, startPoint), stations: points.map((point, i) => ({ ...createStation(point), bs: '1,000', fs: (1 - deltas[i] / 1000).toFixed(3).replace('.', ',') })) });
 
-describe('schema v5 và bộ giải tuyến', () => {
+describe('schema v6 và bộ giải tuyến', () => {
   it('giải tuyến DG3 → DC6 → DC7 → DG4', () => {
     const solved = solveRun(makeRun('DG3', ['DC6', 'DC7', 'DG4'], [-100, -200, -281]), benchmarks);
     expect(solved.points.map((p) => p.elevation)).toEqual([2222, 2122, 1922, 1641]);
@@ -38,7 +38,7 @@ describe('schema v5 và bộ giải tuyến', () => {
       benchmarks: [{ name: 'DG1', elevation: '1854' }],
       runs: [{ ...createRun(1, 'DG1'), stations: [{ ...createStation('TP1'), bs: '1330', fs: '1105' }] }],
     });
-    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.schemaVersion).toBe(6);
     expect(migrated.benchmarks[0].elevation).toBe('1,854');
     expect(migrated.runs[0].stations[0]).toEqual(expect.objectContaining({ bs: '1,330', fs: '1,105' }));
     expect(solveRun(migrated.runs[0], migrated.benchmarks).points.at(-1).elevation).toBe(2079);
@@ -49,7 +49,7 @@ describe('schema v5 và bộ giải tuyến', () => {
       benchmarks: [{ name: 'DG1', elevation: '1.980' }],
       runs: [{ ...createRun(1, 'DG1'), stations: [{ ...createStation('TP1'), bs: '2000.000', fs: '1.585', distance: '10.500' }] }],
     });
-    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.schemaVersion).toBe(6);
     expect(migrated.benchmarks[0].elevation).toBe('1,980');
     expect(migrated.runs[0].stations[0]).toEqual(expect.objectContaining({ bs: '2,000', fs: '1,585', distance: '10,500' }));
   });
@@ -59,7 +59,7 @@ describe('schema v5 và bộ giải tuyến', () => {
       benchmarks: [{ name: 'DG1', elevation: '1,000' }],
       runs: [{ ...createRun(1, 'DG1'), stations: [{ ...createStation('TP1'), pointType: undefined }] }],
     });
-    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.schemaVersion).toBe(6);
     expect(migrated.runs[0].stations[0].pointType).toBe('turning');
   });
   it('phục hồi cao độ schema v5 còn lưu ở dạng nhập thô', () => {
@@ -131,12 +131,12 @@ describe('schema v5 và bộ giải tuyến', () => {
     expect(adjusted.points.find((point) => point.name === 'DG2').elevation).toBe(12001);
     expect(adjusted.points.find((point) => point.name === 'DC1').elevation).toBeCloseTo(11000.5, 8);
   });
-  it('cam kết ghost name và giữ chế độ TP cho phép đo kế tiếp', () => {
+  it('cam kết TP cũ nhưng trạm nhập mới luôn trở lại điểm chuyền', () => {
     const run = { ...createRun(1, 'DG1'), stations: [createStation('', POINT_TYPE_SIDE)] };
     const result = finalizeStation(run, 0, 'TP_DG1.1');
     expect(result).toEqual(expect.objectContaining({ committed: true, nextIndex: 1, appended: true, point: 'TP_DG1.1', pointType: POINT_TYPE_SIDE }));
     expect(result.stations[0]).toEqual(expect.objectContaining({ point: 'TP_DG1.1', pointType: POINT_TYPE_SIDE }));
-    expect(result.stations[1]).toEqual(expect.objectContaining({ point: '', pointType: POINT_TYPE_SIDE }));
+    expect(result.stations[1]).toEqual(expect.objectContaining({ point: '', pointType: 'turning' }));
   });
   it('không tính trạm nháp sau khi hoàn tất vào điểm cuối hoặc số lượng ĐC/TP', () => {
     const source = { ...createRun(1, 'DG1'), stations: [{ ...createStation(), bs: '1,000', fs: '0,900' }] };
@@ -207,12 +207,53 @@ describe('schema v5 và bộ giải tuyến', () => {
     expect(adjusted.segments[0].point).toBe('DG2');
     expect(adjusted.segments[0].adjustedDelta).toBe(201);
   });
-  it('so sánh điểm chuyền tên tùy chỉnh giữa các lượt và không tính tia phụ', () => {
+  it('chỉ so sánh mốc và điểm chung DC/DG/GPS, không tính điểm trung gian hoặc tia phụ', () => {
     const controls = [{ name: 'DG1', elevation: '10,000' }];
     const first = solveRun({ ...createRun(1, 'DG1'), stations: [{ ...createStation('MOC_A'), bs: '1,000', fs: '0,500' }] }, controls);
     const second = solveRun({ ...createRun(2, 'DG1'), stations: [{ ...createStation('MOC_A'), bs: '1,000', fs: '0,500' }, { ...createStation('MOC_A', POINT_TYPE_SIDE), bs: '1,000', fs: '0,500' }] }, controls);
     const groups = compareRuns([first, second]);
-    expect(groups).toHaveLength(2);
-    expect(groups.find((group) => group.name === 'MOC_A').values).toHaveLength(2);
+    expect(groups.map((group) => group.name)).toEqual(['DG1']);
+  });
+
+  it('mặc định dữ liệu cũ là mốc đầu đã biết và migration chạy lặp an toàn', () => {
+    const old = { schemaVersion: 5, benchmarks: [{ name: 'DG1', elevation: '1,000' }], runs: [{ ...createRun(1, 'DG1'), startMode: undefined }] };
+    const once = normalizeBook(old);
+    const twice = normalizeBook(once);
+    expect(once.runs[0].startMode).toBe(START_MODE_KNOWN);
+    expect(twice).toEqual(once);
+  });
+
+  it('giữ chênh cao khi chưa có mốc khống chế và không tạo cao độ giả', () => {
+    const run = { ...makeRun('MOC_SU', ['1.1', '1.2'], [225, -100]), startMode: START_MODE_UNKNOWN };
+    const solved = solveRun(run, []);
+    expect(solved.solved).toBe(false);
+    expect(solved.rows.map((row) => row.delta)).toEqual([225, -100]);
+    expect(solved.rows.map((row) => row.cumulativeDelta)).toEqual([225, 125]);
+    expect(solved.points.every((point) => point.elevation === null)).toBe(true);
+  });
+
+  it('tính ngược toàn tuyến chưa biết từ mốc khống chế cuối', () => {
+    const run = { ...makeRun('MOC_SU', ['1.1', 'DG9'], [225, -100]), startMode: START_MODE_UNKNOWN };
+    const solved = solveRun(run, [{ name: 'DG9', elevation: '2,000' }]);
+    expect(solved.reverseAnchored).toBe(true);
+    expect(solved.startElevation).toBe(1875);
+    expect(solved.points.map((point) => point.elevation)).toEqual([1875, 2100, 2000]);
+  });
+
+  it('ba lượt tạo ba cặp, bốn lượt tạo sáu cặp với đúng dấu H_sau-H_đầu', () => {
+    const controls = [{ name: 'DG1', elevation: '1,000' }];
+    const solved = [0, -91, 2, 12].map((delta, index) => {
+      const current = makeRun('DG1', ['DC1'], [delta]);
+      current.name = `Lượt ${index + 1}`;
+      current.roundNumber = index + 1;
+      return solveRun(current, controls);
+    });
+    const three = compareRuns(solved.slice(0, 3), controls).find((group) => group.name === 'DC1');
+    const four = compareRuns(solved, controls).find((group) => group.name === 'DC1');
+    expect(three.pairs).toHaveLength(3);
+    expect(four.pairs).toHaveLength(6);
+    expect(three.pairs[0]).toMatchObject({ difference: -91, absoluteDifference: 91 });
+    expect(three.pairs[1]).toMatchObject({ difference: 2, absoluteDifference: 2 });
+    expect(three.pairs[2]).toMatchObject({ difference: 93, absoluteDifference: 93 });
   });
 });

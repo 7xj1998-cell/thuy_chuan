@@ -70,7 +70,7 @@ function appendSheet(XLSX, workbook, name, rows, formats = {}) {
 export async function createExcelWorkbook(book, solvedRuns) {
   const XLSX = await import('xlsx');
   const workbook = XLSX.utils.book_new();
-  const comparisons = compareRuns(solvedRuns);
+  const comparisons = compareRuns(solvedRuns, book.benchmarks);
   const network = adjustLevelingNetwork(solvedRuns, book.benchmarks, book.settings.toleranceCoefficient);
 
   appendSheet(XLSX, workbook, 'Thông tin', [{
@@ -98,14 +98,18 @@ export async function createExcelWorkbook(book, solvedRuns) {
   appendSheet(XLSX, workbook, 'Tất cả điểm', pointRows, { 'Cao độ H (m)': EXCEL_METER_FORMAT });
 
   const comparisonRows = [];
-  comparisons.forEach((group) => group.values.forEach((value) => comparisonRows.push({
+  comparisons.forEach((group) => group.pairs.forEach((pair) => comparisonRows.push({
     Điểm: group.name,
-    'Lượt đo': value.runName,
-    'Cao độ H (m)': metersFromMillimetersOrBlank(value.elevation),
+    'Lượt đầu': pair.fromRunName,
+    'Lượt sau': pair.toRunName,
+    'Chênh có dấu H_sau-H_đầu (mm)': millimetersOrBlank(pair.difference),
+    'Độ lệch tuyệt đối (mm)': millimetersOrBlank(pair.absoluteDifference),
+    'Chiều chênh lệch': pair.difference === 0 ? `${pair.toRunName} bằng ${pair.fromRunName}` : `${pair.toRunName} ${pair.difference > 0 ? 'cao hơn' : 'thấp hơn'} ${pair.fromRunName}`,
     'Max-Min (mm)': millimetersOrBlank(group.spread),
   })));
   appendSheet(XLSX, workbook, 'So sánh', comparisonRows, {
-    'Cao độ H (m)': EXCEL_METER_FORMAT,
+    'Chênh có dấu H_sau-H_đầu (mm)': EXCEL_SIGNED_MM_FORMAT,
+    'Độ lệch tuyệt đối (mm)': EXCEL_MM_FORMAT,
     'Max-Min (mm)': EXCEL_MM_FORMAT,
   });
 
@@ -164,6 +168,7 @@ export async function createExcelWorkbook(book, solvedRuns) {
     const rows = solved.rows.filter((row) => row.point).map((row) => ({
       Trạm: row.index + 1,
       'Loại điểm tới': row.pointType === POINT_TYPE_SIDE ? 'TIA PHỤ' : 'ĐIỂM CHUYỀN',
+      'Chế độ điểm đầu': solved.startMode === 'unknown' ? 'CHƯA BIẾT - KHỐNG CHẾ CUỐI' : 'ĐÃ BIẾT CAO ĐỘ',
       'Điểm sau': row.fromName,
       'H sau (m)': metersFromMillimetersOrBlank(row.fromElevation),
       'BS trên (m)': run.mode === 'three' ? inputMetersOrBlank(row.bsUpper) : '',
@@ -243,7 +248,7 @@ function pdfMeters(value, locale) {
 }
 
 function pdfElevation(value, locale) {
-  return value === null || value === undefined || !Number.isFinite(value) ? '—' : `${formatReportElevation(value, locale)} m`;
+  return value === null || value === undefined || !Number.isFinite(value) ? 'Chưa xác định' : `${formatReportElevation(value, locale)} m`;
 }
 
 function pdfMillimeters(value, locale, signed = false) {
@@ -256,6 +261,7 @@ export async function createPdfDocument(book, solvedRuns, options = {}) {
   await registerPdfFont(doc, options.fontBuffer);
   const locale = options.locale || 'vi-VN';
   const network = adjustLevelingNetwork(solvedRuns, book.benchmarks, book.settings.toleranceCoefficient);
+  const comparisons = compareRuns(solvedRuns, book.benchmarks);
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 14;
@@ -335,6 +341,24 @@ export async function createPdfDocument(book, solvedRuns, options = {}) {
     });
     y = (doc.lastAutoTable?.finalY || y) + 9;
   });
+
+  if (comparisons.length) {
+    y = sectionTitle('Chênh lệch giữa các lượt tại điểm chung', y);
+    autoTable(doc, {
+      ...tableStyles,
+      startY: y,
+      head: [['Điểm', 'Hai lượt', '|ΔH| (mm)', 'ΔH = H_sau - H_đầu (mm)', 'Chiều chênh lệch', 'Max-Min (mm)']],
+      body: comparisons.flatMap((group) => group.pairs.map((pair) => [
+        group.name,
+        `${pair.fromRunName} ↔ ${pair.toRunName}`,
+        pdfMillimeters(pair.absoluteDifference, locale),
+        pdfMillimeters(pair.difference, locale, true),
+        pair.difference === 0 ? `${pair.toRunName} bằng ${pair.fromRunName}` : `${pair.toRunName} ${pair.difference > 0 ? 'cao hơn' : 'thấp hơn'} ${pair.fromRunName}`,
+        pdfMillimeters(group.spread, locale),
+      ])),
+    });
+    y = (doc.lastAutoTable?.finalY || y) + 9;
+  }
 
   y = sectionTitle('Bình sai lưới độ cao', y);
   if (!network.available) {

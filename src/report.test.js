@@ -71,4 +71,28 @@ describe('báo cáo Excel kỹ thuật', () => {
     expect(adjustedPoints.some((row) => row['Tên điểm'] === 'TP_DC1.1')).toBe(false);
     expect(JSON.parse(workbook.Props.Comments).runs[0].stations[1].pointType).toBe(POINT_TYPE_SIDE);
   });
+
+  it('xuất đủ ba cặp so sánh của ba lượt với dấu và chiều chênh lệch', async () => {
+    const initial = createBook();
+    const deltas = [1000, 909, 1002];
+    const book = normalizeBook({
+      ...initial,
+      benchmarks: [{ ...initial.benchmarks[0], name: 'DG1', elevation: '1,689' }],
+      runs: deltas.map((delta, index) => ({
+        ...initial.runs[0],
+        id: `r${index + 1}`,
+        name: `Lượt ${index + 1}`,
+        roundNumber: index + 1,
+        startPoint: 'DG1',
+        stations: [{ ...createStation('DC1'), bs: (delta / 1000).toFixed(3).replace('.', ','), fs: '0,000' }],
+      })),
+    });
+    const solvedRuns = book.runs.map((run) => solveRun(run, book.benchmarks));
+    const { XLSX, workbook } = await createExcelWorkbook(book, solvedRuns);
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets['So sánh']).filter((row) => row['Điểm'] === 'DC1');
+    expect(rows).toHaveLength(3);
+    expect(rows.map((row) => row['Chênh có dấu H_sau-H_đầu (mm)'])).toEqual([-91, 2, 93]);
+    expect(rows.map((row) => row['Độ lệch tuyệt đối (mm)'])).toEqual([91, 2, 93]);
+    expect(rows[0]['Chiều chênh lệch']).toBe('Lượt 2 thấp hơn Lượt 1');
+  });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import {
   BarChart2,
   BookOpen,
@@ -14,7 +14,6 @@ import {
   FolderOpen,
   Gauge,
   Landmark,
-  MapPin,
   PencilLine,
   Plus,
   Route as RouteIcon,
@@ -36,17 +35,19 @@ import {
   createStation,
   finalizeStation,
   nextRunNumber,
+  START_MODE_KNOWN,
+  START_MODE_UNKNOWN,
   removeStation,
   solveRun,
 } from './model';
 import { uid, uppercaseName } from './calc';
 import {
-  collectPointNames,
+  collectSelectableControlPoints,
   filterPointNames,
+  isNamedControlPoint,
   normalizePointType,
   POINT_TYPE_SIDE,
   POINT_TYPE_TURNING,
-  pointTypeLabel,
   remapGeneratedSidePointNames,
   suggestTargetPointName,
 } from './pointNames';
@@ -56,11 +57,13 @@ import { inspectStation, normalizeStationDraft, FIELD_DEFAULTS } from './fieldCh
 import { ConfirmDialog, ElevationProfile, QualityCard, SheetDialog, SurveyIllustration } from './FieldUI';
 import {
   changeRunStartPoint,
+  changeRunUnknownStart,
   createUnstartedRun,
   findValidBenchmark,
   runHasReadings,
   validBenchmarks,
 } from './runStart';
+import { EMPTY_PANEL_STATE, panelReducer } from './panelState';
 import { OPEN_ROUTE_WARNING } from './terminology';
 import {
   canonicalBenchmarkElevationDraft,
@@ -317,7 +320,7 @@ function PointCombobox({ value, onValueChange, options = [], placeholder = '', a
 }
 
 function useAvailablePoints(currentBook) {
-  return useMemo(() => collectPointNames(currentBook), [currentBook]);
+  return useMemo(() => collectSelectableControlPoints(currentBook), [currentBook]);
 }
 
 export default function App() {
@@ -326,12 +329,11 @@ export default function App() {
   const [tab, setTab] = useState('measure');
   const [runId, setRunId] = useState(() => book.runs[0].id);
   const [stationIndex, setStationIndex] = useState(0);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [panels, dispatchPanel] = useReducer(panelReducer, EMPTY_PANEL_STATE);
   const [toast, setToast] = useState(null);
   const [exporting, setExporting] = useState(null);
   const [checksRequested, setChecksRequested] = useState(false);
   const [dialog, setDialog] = useState(null);
-  const [originPickerOpen, setOriginPickerOpen] = useState(false);
   const [pendingImport, setPendingImport] = useState(null);
   const [outdoor, setOutdoor] = useState(() => {
     try { return localStorage.getItem(OUTDOOR_STORAGE_KEY) === 'true'; } catch { return false; }
@@ -348,15 +350,20 @@ export default function App() {
   }, book.benchmarks)), [book]);
   const activeSolved = solvedRuns[activeRunIndex];
   const availablePoints = useAvailablePoints(book);
+  const settingsRun = book.runs.find((run) => run.id === panels.settingsRunId) || null;
+  const originPickerRun = book.runs.find((run) => run.id === panels.originPickerRunId) || null;
 
   useEffect(() => {
     setRunId(book.runs[0].id);
     setStationIndex(0);
     setChecksRequested(false);
-    setSettingsOpen(false);
+    dispatchPanel({ type: 'reset' });
     setDialog(null);
-    setOriginPickerOpen(false);
   }, [book.id]);
+
+  useEffect(() => {
+    dispatchPanel({ type: 'reset' });
+  }, [runId, tab]);
 
   useEffect(() => {
     finishLock.current = false;
@@ -402,7 +409,20 @@ export default function App() {
     } : item),
   }));
   function selectRun(id) {
-    setRunId(id); setStationIndex(0); setSettingsOpen(false);
+    dispatchPanel({ type: 'reset' }); setRunId(id); setStationIndex(0);
+  }
+  function openRunSettings(id = activeRun.id) {
+    setDialog(null);
+    dispatchPanel({ type: 'open-settings', runId: id });
+  }
+  function openOriginPicker(id = activeRun.id) {
+    setDialog(null);
+    dispatchPanel({ type: 'open-origin', runId: id });
+  }
+  function changeTab(nextTab) {
+    dispatchPanel({ type: 'reset' });
+    setDialog(null);
+    setTab(nextTab);
   }
   function addRun(mode = 'single') {
     const next = createUnstartedRun(book, mode);
@@ -412,8 +432,7 @@ export default function App() {
     }
   }
   function goToBenchmarks() {
-    setOriginPickerOpen(false);
-    setSettingsOpen(false);
+    dispatchPanel({ type: 'reset' });
     setTab('files');
     window.setTimeout(() => {
       const section = document.getElementById('benchmark-section');
@@ -421,17 +440,22 @@ export default function App() {
       section?.querySelector('input, button')?.focus({ preventScroll: true });
     }, 50);
   }
-  function setRunOrigin(run, benchmarkName, { confirm = true, initial = false } = {}) {
-    const benchmark = findValidBenchmark(book, benchmarkName);
-    if (!benchmark || benchmark.name === run.startPoint) return;
+  function setRunOrigin(run, pointName, { confirm = true, initial = false, startMode = START_MODE_KNOWN } = {}) {
+    const benchmark = startMode === START_MODE_KNOWN ? findValidBenchmark(book, pointName) : null;
+    const normalizedName = startMode === START_MODE_KNOWN ? benchmark?.name : uppercaseName(pointName).trim();
+    if (!normalizedName || (normalizedName === run.startPoint && startMode === run.startMode)) return;
     const applyChange = () => {
-      const saved = updateBook((previous) => changeRunStartPoint(previous, run.id, benchmark.name), { checkpoint: 'Đổi mốc xuất phát' });
-      if (saved) setToast({ text: initial ? `Đã bắt đầu ${run.name} từ ${benchmark.name}` : `Đã đổi mốc ${run.name} sang ${benchmark.name} · Kết quả đã tính lại` });
+      const saved = updateBook((previous) => startMode === START_MODE_KNOWN
+        ? changeRunStartPoint(previous, run.id, normalizedName)
+        : changeRunUnknownStart(previous, run.id, normalizedName), { checkpoint: 'Đổi mốc xuất phát' });
+      if (saved) setToast({ text: initial
+        ? `Đã bắt đầu ${run.name} từ ${normalizedName}`
+        : `Đã đổi điểm đầu ${run.name} sang ${normalizedName} · Kết quả đã tính lại` });
     };
     if (confirm && runHasReadings(run)) {
       setDialog({
-        title: `Đổi mốc xuất phát của ${run.name}?`,
-        description: `Số đọc, tên điểm, loại ĐC/TP và thứ tự trạm được giữ nguyên. Cao độ và kết quả của riêng ${run.name} sẽ được tính lại từ ${benchmark.name}.`,
+        title: `Đổi điểm xuất phát của ${run.name}?`,
+        description: `Số đọc, tên điểm và thứ tự trạm được giữ nguyên. Cao độ của riêng ${run.name} sẽ được tính lại từ ${normalizedName}.`,
         confirmLabel: 'Đổi mốc & tính lại',
         onConfirm: () => { applyChange(); setDialog(null); },
       });
@@ -454,7 +478,7 @@ export default function App() {
     if (!last.point && !READING_FIELDS.some((field) => String(last[field] ?? '').trim())) {
       setStationIndex(activeRun.stations.length - 1);
     } else {
-      if (!updateRun(activeRun.id, { stations: [...activeRun.stations, createStation('', last?.pointType || POINT_TYPE_TURNING)] })) return;
+      if (!updateRun(activeRun.id, { stations: [...activeRun.stations, createStation('', POINT_TYPE_TURNING)] })) return;
       setStationIndex(activeRun.stations.length);
     }
     setTab('measure');
@@ -530,17 +554,17 @@ export default function App() {
   function newBook() {
     if (library.newBook()) { setTab('measure'); setToast({ text: 'Đã cất sổ trước vào thư viện' }); }
   }
-  function duplicateRun() {
+  function duplicateRun(targetRun = activeRun) {
     const id = uid(), roundNumber = nextRunNumber(book.runs);
-    const copy = { ...structuredClone(activeRun), id, roundNumber, name: activeRun.name + ' - bản sao',
-      stations: remapGeneratedSidePointNames(book, activeRun, id, roundNumber).map((station) => ({ ...station, id: uid() })),
+    const copy = { ...structuredClone(targetRun), id, roundNumber, name: targetRun.name + ' - bản sao',
+      stations: remapGeneratedSidePointNames(book, targetRun, id, roundNumber).map((station) => ({ ...station, id: uid() })),
     };
     if (updateBook((previous) => ({ ...previous, runs: [...previous.runs, copy] }))) selectRun(copy.id);
   }
-  function deleteRun() {
+  function deleteRun(targetRun = activeRun) {
     if (book.runs.length <= 1) { setToast({ text: 'Sổ cần ít nhất một lượt.' }); return; }
-    setDialog({ title: 'Xóa ' + activeRun.name + '?', description: 'Bản trước khi xóa sẽ được giữ trong lịch sử khôi phục của sổ.', confirmLabel: 'Xóa lượt', onConfirm: () => {
-      const runs = book.runs.filter((run) => run.id !== activeRun.id);
+    setDialog({ title: 'Xóa ' + targetRun.name + '?', description: 'Bản trước khi xóa sẽ được giữ trong lịch sử khôi phục của sổ.', confirmLabel: 'Xóa lượt', onConfirm: () => {
+      const runs = book.runs.filter((run) => run.id !== targetRun.id);
       if (updateBook((previous) => ({ ...previous, runs }), { checkpoint: 'Xóa lượt' })) selectRun(runs[0].id);
       setDialog(null);
     } });
@@ -593,28 +617,29 @@ export default function App() {
   const saveLabel = library.saveState === 'error' ? 'Chưa lưu được' : library.saveState === 'unsaved' ? 'Đang lưu' : 'Đã lưu trên máy';
 
   return (
-    <div className="app-v3 app-v25 app-v27" data-outdoor={outdoor ? 'true' : 'false'}>
+    <div className="app-v3 app-v25 app-v27 app-v28" data-outdoor={outdoor ? 'true' : 'false'}>
       <header className="workspace-header">
         <div className="brand-mark" aria-hidden="true"><img src="/level-mark.svg" alt="" /></div>
-        <div className="brand-copy"><div className="eyebrow">THỦY CHUẨN <span className="version-badge">2.7.2</span></div><h1>{book.name}</h1></div>
+        <div className="brand-copy"><div className="eyebrow">THỦY CHUẨN <span className="version-badge">2.8.0</span></div><h1>{book.name}</h1></div>
         <div className="workspace-status"><button className="iconbtn" onClick={renameBook} aria-label="Đổi tên sổ"><PencilLine /></button></div>
       </header>
       <main id="main-content" data-tab={tab}>
-        <div className="field-toolbar"><span><span className="status-dot" />Sổ đo hiện trường · m / mm</span><span className="save-indicator" data-state={library.saveState}><CloudCheck size={14} />{saveLabel}</span></div>
+        {tab !== 'measure' && <div className="field-toolbar compact-toolbar"><span className="save-indicator" data-state={library.saveState}><CloudCheck size={14} />{saveLabel}</span></div>}
         {library.storageError && <div className="storage-banner" role="alert"><TriangleAlert /><div><b>Cần bảo vệ dữ liệu</b><p>{library.storageError}</p><button onClick={backupAll} disabled={Boolean(exporting)}>Tải sao lưu ngay</button><button onClick={save}>Thử lưu lại</button></div></div>}
         {library.saveState === 'recovered' && !library.storageError && <p className="storage-banner" role="status">Đã khôi phục thư viện từ bản lưu an toàn gần nhất.</p>}
-        {tab !== 'files' && <RunPicker runs={book.runs} solvedRuns={solvedRuns} runId={activeRun.id} onSelect={selectRun} onAdd={() => addRun()} />}
-        {tab === 'measure' && <div ref={measureRef}><Measure book={book} availablePoints={availablePoints} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} updateStation={updateStation} finish={() => finishStation()} changeMode={changeMode} checksRequested={checksRequested} onStart={(name) => setRunOrigin(activeRun, name, { confirm: false, initial: true })} onChangeOrigin={() => setOriginPickerOpen(true)} onManageBenchmarks={goToBenchmarks} /></div>}
-        {tab === 'route' && <><ElevationProfile solved={activeSolved} /><Route run={activeRun} solved={activeSolved} settingsOpen={settingsOpen} setSettingsOpen={setSettingsOpen} updateRun={updateRun} addStation={addStation} edit={(index) => { setStationIndex(index); setTab('measure'); }} remove={deleteStation} duplicate={duplicateRun} deleteRun={deleteRun} onChangeOrigin={() => { setSettingsOpen(false); setOriginPickerOpen(true); }} /></>}
+        {tab !== 'files' && tab !== 'measure' && <RunPicker runs={book.runs} solvedRuns={solvedRuns} runId={activeRun.id} onSelect={selectRun} onAdd={() => addRun()} />}
+        {tab === 'measure' && <div ref={measureRef}><Measure book={book} runs={book.runs} availablePoints={availablePoints} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} updateStation={updateStation} finish={() => finishStation()} changeMode={changeMode} checksRequested={checksRequested} saveState={library.saveState} onSelectRun={selectRun} onOpenSettings={() => openRunSettings(activeRun.id)} onStart={(name, startMode) => setRunOrigin(activeRun, name, { confirm: false, initial: true, startMode })} onManageBenchmarks={goToBenchmarks} /></div>}
+        {tab === 'route' && <><ElevationProfile solved={activeSolved} /><Route run={activeRun} solved={activeSolved} addStation={addStation} edit={(index) => { setStationIndex(index); changeTab('measure'); }} remove={deleteStation} onOpenSettings={() => openRunSettings(activeRun.id)} /></>}
         {tab === 'result' && <Results book={book} solvedRuns={solvedRuns} updateBook={updateBook} />}
         {tab === 'files' && <Files book={book} books={books} library={library} updateBook={updateBook} newBook={newBook} save={save} saveAs={saveAs} exportExcel={() => exportReport('xlsx')} exportPdf={() => exportReport('pdf')} backupAll={backupAll} exporting={exporting} fileRef={fileRef} importFile={importFile} availablePoints={availablePoints} setDialog={setDialog} outdoor={outdoor} setOutdoor={setOutdoor} />}
       </main>
       {tab === 'measure' && activeRun.startPoint && <CaptureDock book={book} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} finish={() => finishStation()} />}
       <nav className="bottom" aria-label="Điều hướng chính">
-        {NAV_ITEMS.map(({ id, label, Icon }) => <button key={id} className={tab === id ? 'active' : ''} aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}><span className="nav-icon" aria-hidden="true"><Icon /></span><span className="nav-label">{label}</span></button>)}
+        {NAV_ITEMS.map(({ id, label, Icon }) => <button key={id} className={tab === id ? 'active' : ''} aria-current={tab === id ? 'page' : undefined} onClick={() => changeTab(id)}><span className="nav-icon" aria-hidden="true"><Icon /></span><span className="nav-label">{label}</span></button>)}
       </nav>
       {toast && <div className="toast" role="status" aria-live="polite"><span>{toast.text}</span>{toast.action && <button onClick={() => { toast.action.fn(); setToast(null); }}>{toast.action.label}</button>}</div>}
-      {originPickerOpen && <BenchmarkPickerDialog book={book} run={activeRun} onSelect={(name) => { setOriginPickerOpen(false); setRunOrigin(activeRun, name); }} onManage={goToBenchmarks} onClose={() => setOriginPickerOpen(false)} />}
+      {settingsRun && <RunSettingsDialog run={settingsRun} updateRun={updateRun} onChangeOrigin={() => openOriginPicker(settingsRun.id)} onDuplicate={() => { dispatchPanel({ type: 'reset' }); duplicateRun(settingsRun); }} onDelete={() => { dispatchPanel({ type: 'reset' }); deleteRun(settingsRun); }} onClose={() => dispatchPanel({ type: 'close-settings' })} />}
+      {originPickerRun && <OriginPickerDialog book={book} run={originPickerRun} onSelect={(name, startMode) => { dispatchPanel({ type: 'close-origin' }); setRunOrigin(originPickerRun, name, { startMode }); }} onManage={goToBenchmarks} onClose={() => dispatchPanel({ type: 'close-origin' })} />}
       {dialog && <ConfirmDialog {...dialog} onClose={() => setDialog(null)} />}
       {pendingImport && <ConfirmDialog title="Nhập sổ vào thư viện" description={pendingImport.filename} messages={['Sổ đang làm sẽ được lưu trước khi nhập.', 'Tệp được thêm thành bản riêng; tên trùng không ghi đè sổ cũ.', 'Tệp sai định dạng sẽ bị từ chối.']} confirmLabel="Nhập bản riêng" onConfirm={confirmImport} onClose={() => setPendingImport(null)} />}
     </div>
@@ -661,35 +686,67 @@ function BenchmarkChoiceList({ book, selectedName, onSelect, onManage, autoFocus
   </div>;
 }
 
-function BenchmarkPickerDialog({ book, run, onSelect, onManage, onClose }) {
-  const [selectedName, setSelectedName] = useState('');
+function OriginModeToggle({ value, onChange }) {
+  return <div className="origin-mode-toggle" role="group" aria-label="Cách khống chế lượt đo">
+    <button type="button" className={value === START_MODE_KNOWN ? 'active' : ''} aria-pressed={value === START_MODE_KNOWN} onClick={() => onChange(START_MODE_KNOWN)}>Mốc đầu đã biết</button>
+    <button type="button" className={value === START_MODE_UNKNOWN ? 'active' : ''} aria-pressed={value === START_MODE_UNKNOWN} onClick={() => onChange(START_MODE_UNKNOWN)}>Mốc đầu chưa biết</button>
+  </div>;
+}
+
+function OriginPickerDialog({ book, run, onSelect, onManage, onClose }) {
+  const [startMode, setStartMode] = useState(run.startMode || START_MODE_KNOWN);
+  const [selectedName, setSelectedName] = useState(startMode === START_MODE_KNOWN ? run.startPoint : '');
+  const [unknownName, setUnknownName] = useState(startMode === START_MODE_UNKNOWN ? run.startPoint : '');
   const selected = findValidBenchmark(book, selectedName);
-  return <SheetDialog title="Đổi mốc xuất phát" description={`${run.name} · chọn một mốc chuẩn đã lưu trong sổ hiện tại.`} onClose={onClose} className="benchmark-dialog">
-    <BenchmarkChoiceList book={book} selectedName={selectedName} onSelect={setSelectedName} onManage={onManage} autoFocus />
-    <div className="modal-actions"><button type="button" onClick={onClose}>Hủy</button><button type="button" className="primary" disabled={!selected || selected.name === run.startPoint} onClick={() => onSelect(selected.name)}><Check />Dùng mốc {selected?.name || ''}</button></div>
+  const unknown = uppercaseName(unknownName).trim();
+  const chosenName = startMode === START_MODE_KNOWN ? selected?.name : unknown;
+  return <SheetDialog title="Điểm xuất phát" description={`${run.name} · chọn cách xác định cao độ của tuyến.`} onClose={onClose} className="benchmark-dialog">
+    <OriginModeToggle value={startMode} onChange={setStartMode} />
+    {startMode === START_MODE_KNOWN
+      ? <BenchmarkChoiceList book={book} selectedName={selectedName} onSelect={setSelectedName} onManage={onManage} autoFocus />
+      : <label className="field-label unknown-origin-input"><span>Tên điểm đầu chưa biết cao độ</span><input autoFocus value={unknownName} onChange={(event) => setUnknownName(uppercaseName(event.target.value).trimStart())} placeholder="Ví dụ: MỐC SỨ 01" autoCapitalize="characters" /></label>}
+    {startMode === START_MODE_UNKNOWN && <p className="origin-mode-note"><TriangleAlert />Chỉ chọn mốc cuối làm khống chế khi đã có cao độ phù hợp và cùng hệ cao độ công trình. Tọa độ GPS không phải là cao độ.</p>}
+    <div className="modal-actions"><button type="button" onClick={onClose}>Hủy</button><button type="button" className="primary" disabled={!chosenName || (chosenName === run.startPoint && startMode === run.startMode)} onClick={() => onSelect(chosenName, startMode)}><Check />Dùng {chosenName || 'điểm này'}</button></div>
+  </SheetDialog>;
+}
+
+function RunSettingsDialog({ run, updateRun, onChangeOrigin, onDuplicate, onDelete, onClose }) {
+  return <SheetDialog title="Cài đặt lượt" description={run.name} onClose={onClose} className="run-settings-sheet">
+    <label className="field-label"><span>Tên lượt</span><input value={run.name} onChange={(event) => updateRun(run.id, { name: event.target.value })} /></label>
+    <div className="settings-origin"><span><small>Điểm xuất phát</small><b>{run.startPoint || 'Chưa chọn'}</b><em>{run.startMode === START_MODE_UNKNOWN ? 'Chưa biết · khống chế cuối' : 'Đã biết cao độ'}</em></span><button type="button" onClick={onChangeOrigin}><PencilLine />Đổi điểm</button></div>
+    <div className="runactions"><button type="button" onClick={onDuplicate}><Copy />Nhân bản</button><button type="button" className="danger" onClick={onDelete}><Trash2 />Xóa lượt</button></div>
   </SheetDialog>;
 }
 
 function StartSession({ book, run, onStart, onManageBenchmarks }) {
+  const [startMode, setStartMode] = useState(START_MODE_KNOWN);
   const [name, setName] = useState('');
   const selected = findValidBenchmark(book, name);
+  const unknown = uppercaseName(name).trim();
   const recent = [...book.runs].reverse().find((item) => item.id !== run.id && findValidBenchmark(book, item.startPoint))?.startPoint;
   function start(event) {
     event.preventDefault();
-    if (selected) onStart(selected.name);
+    if (startMode === START_MODE_KNOWN && selected) onStart(selected.name, START_MODE_KNOWN);
+    if (startMode === START_MODE_UNKNOWN && unknown) onStart(unknown, START_MODE_UNKNOWN);
   }
   return <form className="start-session card" onSubmit={start}>
     <div className="start-session-heading">
-      <div className="card-heading"><span>Thiết lập lượt đo</span><h2>Chọn mốc xuất phát</h2><p>Mỗi lượt dùng mốc riêng. Cao độ lấy từ danh mục mốc chuẩn và không chỉnh tại đây.</p></div>
+      <div className="card-heading"><h2>Điểm xuất phát</h2></div>
       <SurveyIllustration />
     </div>
-    {recent && <button type="button" className="recent-benchmark" onClick={() => setName(recent)}><span>Dùng gần nhất</span><b>{recent}</b><ArrowRight /></button>}
-    <BenchmarkChoiceList book={book} selectedName={name} onSelect={setName} onManage={onManageBenchmarks} autoFocus />
-    <button className="primary start-measurement" type="submit" disabled={!selected}><Crosshair />Bắt đầu đo{selected ? ` từ ${selected.name}` : ''}<ArrowRight /></button>
+    <OriginModeToggle value={startMode} onChange={(mode) => { setStartMode(mode); setName(''); }} />
+    {startMode === START_MODE_KNOWN ? <>
+      {recent && <button type="button" className="recent-benchmark" onClick={() => setName(recent)}><span>Dùng gần nhất</span><b>{recent}</b><ArrowRight /></button>}
+      <BenchmarkChoiceList book={book} selectedName={name} onSelect={setName} onManage={onManageBenchmarks} autoFocus />
+    </> : <>
+      <label className="field-label unknown-origin-input"><span>Tên điểm đầu</span><input autoFocus value={name} onChange={(event) => setName(uppercaseName(event.target.value).trimStart())} placeholder="Ví dụ: MỐC SỨ 01" autoCapitalize="characters" /></label>
+      <p className="origin-mode-note"><TriangleAlert />Cao độ để “Chưa xác định” đến khi tuyến gặp một mốc đã biết ở điểm cuối.</p>
+    </>}
+    <button className="primary start-measurement" type="submit" disabled={startMode === START_MODE_KNOWN ? !selected : !unknown}><Crosshair />Bắt đầu đo{(selected?.name || unknown) ? ` từ ${selected?.name || unknown}` : ''}<ArrowRight /></button>
   </form>;
 }
 
-function Measure({ book, availablePoints, run, solved, index, setIndex, updateStation, finish, changeMode, checksRequested, onStart, onChangeOrigin, onManageBenchmarks }) {
+function Measure({ book, runs, availablePoints, run, solved, index, setIndex, updateStation, finish, changeMode, checksRequested, saveState, onSelectRun, onOpenSettings, onStart, onManageBenchmarks }) {
   const station = run.stations[index];
   const row = solved.rows[index];
   if (!station) return null;
@@ -697,24 +754,32 @@ function Measure({ book, availablePoints, run, solved, index, setIndex, updateSt
   const autoName = suggestTargetPointName(book, run.id, index, pointType);
   const displayPoint = station.point || autoName;
   const inspection = inspectStation(book, run, index, autoName);
-  const savedCount = solved.rows.filter((item) => item.point && item.delta !== null).length;
   const update = (field, value) => updateStation(run, station.id, field, value);
+  const usedControls = run.stations.slice(0, index).map((item) => item.point).filter(isNamedControlPoint);
+  const recentControl = usedControls.filter((name) => /^DC/i.test(name)).at(-1) || null;
+  const nextControl = availablePoints.find((name) => /^DC/i.test(name) && !usedControls.includes(name)) || null;
+  const unresolved = row?.elevation === null || row?.elevation === undefined;
+  const elevationText = unresolved ? 'Chưa xác định' : `${formatElevation(row.elevation)} m`;
+  const legacySide = pointType === POINT_TYPE_SIDE;
 
   return (
     <section className="measure-shell">
-      {run.startPoint && <div className="measure-intro"><div><span className="section-kicker">ĐO HIỆN TRƯỜNG</span><h2>Trạm {String(index + 1).padStart(2, '0')}<span className="session-pill">{run.mode === 'single' ? '1 chỉ' : '3 chỉ'}</span></h2></div><span className="session-pill"><Check size={14} />{savedCount} trạm có số đọc</span></div>}
+      <div className="measure-run-header">
+        <label><span className="sr-only">Chọn lượt đo</span><select value={run.id} onChange={(event) => onSelectRun(event.target.value)}>{runs.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <span className={`measure-run-status ${solved.solved ? 'is-ready' : 'is-open'}`}>{solved.solved ? 'Đã có cao độ' : run.startMode === START_MODE_UNKNOWN ? 'Chưa khép mốc' : 'Đang đo'}</span>
+        <span className="measure-save-state">{saveState === 'error' ? 'Lỗi lưu' : saveState === 'unsaved' ? 'Đang lưu' : 'Đã lưu'}</span>
+        <button type="button" className="settings-btn" aria-label={`Cài đặt ${run.name}`} onClick={onOpenSettings}><Settings2 /></button>
+      </div>
       {!run.startPoint && <StartSession key={run.id} book={book} run={run} onStart={onStart} onManageBenchmarks={onManageBenchmarks} />}
       <div className={`measure-layout measure-only${run.startPoint ? '' : ' is-locked'}`} aria-hidden={!run.startPoint}>
         <div className="measure-primary">
-          <div className="origin-card">
-            <span className="origin-icon" aria-hidden="true"><MapPin /></span>
-            <span><small>Mốc xuất phát</small><b>{run.startPoint || 'Chưa chọn'}</b></span>
-            <strong className="numeric">{findValidBenchmark(book, run.startPoint)?.elevation || '—'} <small>m</small></strong>
-            <button type="button" onClick={onChangeOrigin}><PencilLine />Đổi mốc</button>
+          <div className="measure-route-line">
+            <span>Trạm {index + 1}</span><b>{row?.fromName || run.startPoint || '—'} <ArrowRight /> {displayPoint}</b>
+            {legacySide && <em>Dữ liệu TP cũ · chỉ đọc loại điểm</em>}
           </div>
           <div className="survey-console">
             <div className="console-top">
-              <div><span className="section-kicker">ĐIỂM ĐẶT MIA SAU</span><strong>{row?.fromName || run.startPoint || 'Chọn mốc gốc'}</strong><small className="numeric">H = {formatElevation(row?.fromElevation)} m</small></div>
+              <div><span>Điểm đặt mia sau</span><strong>{row?.fromName || run.startPoint || '—'}</strong><small className="numeric">{row?.fromElevation == null ? 'H chưa xác định' : `H ${formatElevation(row.fromElevation)} m`}</small></div>
               <div className="seg" aria-label="Phương pháp đọc mia">
                 <button type="button" aria-pressed={run.mode === 'single'} className={run.mode === 'single' ? 'active' : ''} onClick={() => changeMode('single')}>1 chỉ</button>
                 <button type="button" aria-pressed={run.mode === 'three'} className={run.mode === 'three' ? 'active' : ''} onClick={() => changeMode('three')}>3 chỉ</button>
@@ -723,29 +788,26 @@ function Measure({ book, availablePoints, run, solved, index, setIndex, updateSt
             <div className="reading-grid readings">
               {run.mode === 'single' ? <>
                 <div className="reading reading-bs"><div className="reading-title"><span>Mia sau<small>Số đọc theo mét</small></span><em>BS</em></div>
-                  <MeterInput className="hero-input" data-reading="bs" staffReading aria-label="Số đọc mia sau BS theo mét" aria-invalid={checksRequested && inspection.errors.some((item) => item.field === 'bs')} enterKeyHint="next" value={station.bs} onValueChange={(value) => update('bs', value)} onFocus={(event) => event.target.select()} />
-                  <small className="reading-example">Định dạng: <b className="numeric">2,000</b> m</small></div>
+                  <MeterInput className="hero-input" data-reading="bs" staffReading aria-label="Số đọc mia sau BS theo mét" aria-invalid={checksRequested && inspection.errors.some((item) => item.field === 'bs')} enterKeyHint="next" value={station.bs} onValueChange={(value) => update('bs', value)} onFocus={(event) => event.target.select()} /></div>
                 <div className="reading reading-fs"><div className="reading-title"><span>Mia trước<small>Số đọc theo mét</small></span><em>FS</em></div>
-                  <MeterInput className="hero-input" data-reading="fs" staffReading aria-label="Số đọc mia trước FS theo mét" aria-invalid={checksRequested && inspection.errors.some((item) => item.field === 'fs')} enterKeyHint="done" value={station.fs} onValueChange={(value) => update('fs', value)} onComplete={finish} onFocus={(event) => event.target.select()} />
-                  <small className="reading-example">Định dạng: <b className="numeric">1,585</b> m</small></div>
+                  <MeterInput className="hero-input" data-reading="fs" staffReading aria-label="Số đọc mia trước FS theo mét" aria-invalid={checksRequested && inspection.errors.some((item) => item.field === 'fs')} enterKeyHint="done" value={station.fs} onValueChange={(value) => update('fs', value)} onComplete={finish} onFocus={(event) => event.target.select()} /></div>
               </> : <>
                 <Staff title="Mia sau" prefix="bs" station={station} row={row} update={update} />
                 <Staff title="Mia trước" prefix="fs" station={station} row={row} update={update} finish={finish} />
               </>}
             </div>
             <div className="result-strip" aria-label="Kết quả tính tức thời">
-              <div><span>H tới · {displayPoint}</span><strong className="numeric">{formatElevation(row?.elevation)} <small>m</small></strong></div>
+              <div><span>H tới · {displayPoint}</span><strong className="numeric">{elevationText}</strong></div>
               <div><span>Chênh cao · Δh</span><b className="numeric">{formatSignedMillimeters(row?.delta)} <small>mm</small></b></div>
-              <div><span>Cao độ tia ngắm (H<sub>tia</sub>)</span><b className="numeric">{formatElevation(row?.hi)} <small>m</small></b></div>
+              <div><span>Chênh cao tích lũy</span><b className="numeric">{formatSignedMillimeters(row?.cumulativeDelta)} <small>mm</small></b></div>
             </div>
           </div>
           <div className="pointbox">
-            <div className="point-type-toggle" role="group" aria-label="Chọn loại điểm tới">
-              <button type="button" className={pointType === POINT_TYPE_TURNING ? 'active' : ''} aria-pressed={pointType === POINT_TYPE_TURNING} onClick={() => update('pointType', POINT_TYPE_TURNING)}>Điểm chuyền <small>ĐC</small></button>
-              <button type="button" className={pointType === POINT_TYPE_SIDE ? 'active' : ''} aria-pressed={pointType === POINT_TYPE_SIDE} onClick={() => update('pointType', POINT_TYPE_SIDE)}>Tia phụ <small>TP</small></button>
-            </div>
             <div className="point-entry"><span>Điểm tới</span><PointCombobox key={station.id} ariaLabel="Điểm tới" options={availablePoints} scopeKey={book.id} placeholder={autoName} value={station.point} onValueChange={(value) => update('point', value)} /></div>
-            <p className="point-guidance">{pointType === POINT_TYPE_SIDE ? 'Giữ nguyên mia sau · Tia phụ không tham gia bình sai.' : 'Để trống tên: dùng ' + autoName + ' và tự nối sang trạm tiếp theo.'}</p>
+            {!legacySide && (recentControl || nextControl) && <div className="control-point-hints">
+              {recentControl && <span>DC gần nhất: <b>{recentControl}</b></span>}
+              {nextControl && <button type="button" onClick={() => update('point', nextControl)}>Chọn {nextControl}</button>}
+            </div>}
           </div>
           <details className="quick-options" key={run.mode}>
             <summary><span>Khoảng cách & ghi chú</span><span>{station.distance ? formatMeters(Number(String(station.distance).replace(',', '.'))) + ' m' : 'Tùy chọn'}</span></summary>
@@ -766,8 +828,8 @@ function CaptureDock({ book, run, solved, index, setIndex, finish }) {
   const pointType = normalizePointType(station.pointType);
   const displayPoint = station.point || suggestTargetPointName(book, run.id, index, pointType);
   return <div className="capture-dock" aria-label="Điều khiển lưu trạm">
-    <div className="capture-dock-summary"><span>Điểm tới <b className="numeric">{displayPoint}</b></span><strong className="numeric">{formatElevation(row?.elevation)} m</strong></div>
-    <div className="field-actions"><button className="step-button" aria-label="Trạm trước" title="Trạm trước" onClick={() => setIndex(Math.max(0, index - 1))} disabled={index === 0}><ChevronLeft /></button><button type="button" className="primary finish" onClick={finish}><Check />{station.committedAt ? 'Cập nhật trạm' : 'Lưu & tiếp tục'}</button><button className="step-button" aria-label="Trạm tiếp theo" title="Trạm tiếp theo" onClick={() => setIndex(Math.min(run.stations.length - 1, index + 1))} disabled={index === run.stations.length - 1}><ChevronRight /></button></div>
+    <div className="capture-dock-summary"><span>Điểm tới <b className="numeric">{displayPoint}</b></span><strong className="numeric">{row?.elevation == null ? 'Chưa xác định' : `${formatElevation(row.elevation)} m`}</strong></div>
+    <div className="field-actions"><button className="step-button" aria-label="Trạm trước" title="Trạm trước" onClick={() => setIndex(Math.max(0, index - 1))} disabled={index === 0}><ChevronLeft /></button><button type="button" className="primary finish" onClick={finish}><Check />{station.committedAt ? 'Cập nhật trạm' : 'Lưu trạm'}</button><button className="step-button" aria-label="Trạm tiếp theo" title="Trạm tiếp theo" onClick={() => setIndex(Math.min(run.stations.length - 1, index + 1))} disabled={index === run.stations.length - 1}><ChevronRight /></button></div>
   </div>;
 }
 function Staff({ title, prefix, station, row, update, finish }) {
@@ -787,22 +849,18 @@ function Staff({ title, prefix, station, row, update, finish }) {
   );
 }
 
-function Route({ run, solved, settingsOpen, setSettingsOpen, updateRun, addStation, edit, remove, duplicate, deleteRun, onChangeOrigin }) {
+function Route({ run, solved, addStation, edit, remove, onOpenSettings }) {
   return (
     <section className="route-shell">
       <div className="card runsummary">
         <div className="runsummary-top">
           <div className="runsummary-badge" aria-hidden="true"><RouteIcon /></div>
           <div className="runsummary-main"><small>Tuyến đang chọn</small><h2>{run.name}</h2><p><b>{run.startPoint || '—'}</b><span aria-hidden="true">→</span><b>{solved.endPoint || run.startPoint || '—'}</b><span>· {solved.turningCount} ĐC · {solved.sideCount} TP</span></p></div>
-          <button className="settings-btn" aria-label="Cài đặt lượt đo" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(!settingsOpen)}><Settings2 /></button>
+          <button className="settings-btn" aria-label="Cài đặt lượt đo" onClick={onOpenSettings}><Settings2 /></button>
         </div>
       </div>
-      {settingsOpen && <SheetDialog title="Cài đặt lượt đo" description="Đổi tên, mốc xuất phát hoặc quản lý bản sao của lượt hiện tại." onClose={() => setSettingsOpen(false)} className="run-settings-sheet">
-        <label className="field-label"><span>Tên lượt</span><input value={run.name} onChange={(event) => updateRun(run.id, { name: event.target.value })} /></label>
-        <div className="settings-origin"><span><small>Mốc xuất phát</small><b>{run.startPoint || 'Chưa chọn'}</b></span><button type="button" onClick={onChangeOrigin}><PencilLine />Đổi mốc</button></div>
-        <div className="runactions"><button type="button" onClick={() => { setSettingsOpen(false); duplicate(); }}><Copy />Nhân bản</button><button type="button" className="danger" onClick={() => { setSettingsOpen(false); deleteRun(); }}><Trash2 />Xóa lượt</button></div>
-      </SheetDialog>}
-      {!solved.solved && <p className="warning">Lượt này chưa chứa mốc chuẩn có cao độ biết trước.</p>}
+      {!solved.solved && <p className="warning">{run.startMode === START_MODE_UNKNOWN ? 'Lượt chưa khép vào mốc cao độ.' : 'Lượt này chưa chứa mốc chuẩn có cao độ biết trước.'}</p>}
+      {solved.reverseAnchored && <p className="check">Đã khống chế tại {solved.controlPoint} · cao độ điểm đầu được tính ngược: <b className="numeric">{formatElevation(solved.startElevation)} m</b>.</p>}
       <div className="route-list-head"><div><span>Hành trình đo</span><b className="numeric">{solved.rows.length} trạm</b></div><small>Chạm để sửa · vuốt trái để xóa</small></div>
       <div className="route-list">{solved.rows.map((row, index) => <SwipeStation key={row.id} row={row} index={index} edit={edit} remove={remove} />)}</div>
       <button className="primary addstation" onClick={addStation}><Plus />Thêm trạm</button>
@@ -872,19 +930,9 @@ function SwipeStation({ row, index, edit, remove }) {
         <span className="route-body">
           <b><em className={`route-kind route-kind-${row.pointType}`}>{row.pointType === POINT_TYPE_SIDE ? 'TP' : 'ĐC'}</em>{row.fromName || '—'} <span aria-hidden="true">→</span> {row.point || '—'}</b>
           <small className="numeric"><span>BS {formatStaffReading(row.bs)} m</span><span>FS {formatStaffReading(row.fs)} m</span><span>Δh {formatSignedMillimeters(row.delta)} mm</span></small>
-          <small className="route-elevation"><span>H tới: <strong className="numeric">{formatElevation(row.elevation)} m</strong></span>{row.distance !== null && <span className="route-distance numeric">D {formatMeters(row.distance)} m</span>}</small>
+          <small className="route-elevation"><span>H tới: <strong className="numeric">{row.elevation == null ? 'Chưa xác định' : `${formatElevation(row.elevation)} m`}</strong></span>{row.distance !== null && <span className="route-distance numeric">D {formatMeters(row.distance)} m</span>}</small>
         </span>
         <span className="route-chevron" aria-hidden="true"><ChevronRight /></span>
-      </button>
-      <button
-        type="button"
-        className="route-delete-alt"
-        aria-label={`Xóa nhanh trạm ${index + 1}`}
-        title="Xóa nhanh"
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={(event) => { event.stopPropagation(); setOpen(false); remove(index); }}
-      >
-        <Trash2 aria-hidden="true" />
       </button>
     </div>
   );
@@ -894,15 +942,20 @@ function SectionHeading({ Icon, eyebrow, title, description }) {
   return <div className="section-heading"><span className="section-heading-icon" aria-hidden="true"><Icon /></span><div><span>{eyebrow}</span><h2>{title}</h2><p>{description}</p></div></div>;
 }
 
+function comparisonDirection(pair) {
+  if (pair.difference === 0) return `${pair.toRunName} bằng ${pair.fromRunName}`;
+  return `${pair.toRunName} ${pair.difference > 0 ? 'cao hơn' : 'thấp hơn'} ${pair.fromRunName}`;
+}
+
 function Results({ book, solvedRuns, updateBook }) {
-  const comparisons = compareRuns(solvedRuns);
+  const comparisons = compareRuns(solvedRuns, book.benchmarks);
   const coefficient = book.settings.toleranceCoefficient;
   const network = adjustLevelingNetwork(solvedRuns, book.benchmarks, coefficient);
   return (
     <section className="result-shell">
-      <SectionHeading Icon={BarChart2} eyebrow="Kết quả kỹ thuật" title="Kiểm tra & bình sai" description="Theo dõi sai số, độ chính xác và cao độ sau bình sai." />
+      <SectionHeading Icon={BarChart2} eyebrow="" title="Kết quả & bình sai" description="" />
       <div className="result-area" data-result-area="closure">
-        <div className="result-area-heading"><Gauge aria-hidden="true" /><div><span>01</span><h3>Kiểm tra khép</h3></div></div>
+        <div className="result-area-heading"><Gauge aria-hidden="true" /><div><h3>Kiểm tra khép</h3></div></div>
         {solvedRuns.map((solved) => (
           <div className="card result-card" key={solved.runId}>
             <div className="card-heading"><span>Lượt đo</span><h3>{solved.runName}</h3></div>
@@ -918,19 +971,26 @@ function Results({ book, solvedRuns, updateBook }) {
         ))}
       </div>
       <div className="result-area" data-result-area="comparison">
-        <div className="result-area-heading"><RouteIcon aria-hidden="true" /><div><span>02</span><h3>So sánh điểm chung</h3></div></div>
+        <div className="result-area-heading"><RouteIcon aria-hidden="true" /><div><h3>So sánh điểm chung</h3></div></div>
         <div className="card">
-          <div className="card-heading"><span>Đối chiếu theo tên điểm</span><h3>Điểm chuyền giữa các lượt</h3></div>
+          <div className="card-heading"><h3>DC, DG, GPS và mốc kiểm tra</h3></div>
           {comparisons.length ? comparisons.map((group) => (
             <div className="compare" key={group.name}>
               <div className="compareHead"><b>{group.name}</b><span className="numeric">Max - Min: {formatMillimeters(group.spread)} mm</span></div>
               {group.values.map((value) => <div className="compareLine" key={value.runId}><span>{value.runName}</span><b className="numeric">{formatElevation(value.elevation)} m</b></div>)}
+              <details className="pair-comparisons">
+                <summary>Chênh lệch giữa các lượt · {group.pairs.length}</summary>
+                {group.pairs.map((pair) => <div className="pair-comparison" key={`${pair.fromRunId}-${pair.toRunId}`}>
+                  <span><b>{pair.fromRunName} ↔ {pair.toRunName}</b><small>{comparisonDirection(pair)}</small></span>
+                  <strong className="numeric">{formatMillimeters(pair.absoluteDifference)} mm <small>({formatSignedMillimeters(pair.difference)} mm)</small></strong>
+                </div>)}
+              </details>
             </div>
           )) : <p className="empty">Chưa có điểm chuyền cùng tên ở ít nhất 2 lượt.</p>}
         </div>
       </div>
       <div className="result-area" data-result-area="adjustment">
-        <div className="result-area-heading"><BarChart2 aria-hidden="true" /><div><span>03</span><h3>Bình sai lưới</h3></div></div>
+        <div className="result-area-heading"><BarChart2 aria-hidden="true" /><div><h3>Bình sai lưới</h3></div></div>
         <NetworkAdjustment network={network} />
         <div className="card tolerance-card">
           <label>Hệ số C <span>mm/√km</span><input className="numeric" inputMode="decimal" value={coefficient} onChange={(event) => updateBook((previous) => ({ ...previous, settings: { ...previous.settings, toleranceCoefficient: event.target.value } }))} /></label>

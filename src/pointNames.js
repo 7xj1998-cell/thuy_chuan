@@ -7,6 +7,7 @@ export const normalizePointType = (value) => value === POINT_TYPE_SIDE ? POINT_T
 export const pointTypeLabel = (value) => normalizePointType(value) === POINT_TYPE_SIDE ? 'Tia phụ (TP)' : 'Điểm chuyền (ĐC)';
 
 const cleanPointName = (value) => uppercaseName(value).trim();
+export const isNamedControlPoint = (value) => /^(?:DC|DG|GPS)(?:\d|[_\s.-])/i.test(cleanPointName(value));
 
 export function collectPointNames(book) {
   const names = [];
@@ -34,6 +35,28 @@ export function collectPointNames(book) {
   return names;
 }
 
+// Generated intermediate names such as 1.1 or 2.3 are deliberately excluded
+// from the point picker. They identify a single run and are not controls to
+// match across measurement rounds.
+export function collectSelectableControlPoints(book) {
+  const names = [];
+  const seen = new Set();
+  const add = (value, benchmark = false) => {
+    const name = cleanPointName(value);
+    if (!name || seen.has(name) || (!benchmark && !isNamedControlPoint(name))) return;
+    seen.add(name);
+    names.push(name);
+  };
+  (book?.benchmarks || []).forEach((benchmark) => add(benchmark.name, true));
+  (book?.runs || []).forEach((run) => {
+    (run.stations || []).forEach((station) => {
+      add(station.fromPoint);
+      add(station.toPoint || station.point);
+    });
+  });
+  return names.sort((left, right) => left.localeCompare(right, 'vi', { numeric: true, sensitivity: 'base' }));
+}
+
 export function stationOrigin(run, stationIndex) {
   let origin = cleanPointName(run?.startPoint);
   const stations = run?.stations || [];
@@ -59,26 +82,20 @@ export function suggestTargetPointName(book, runId, stationIndex, requestedType)
   const run = runs[runIndex];
   if (!run) return '';
   const pointType = normalizePointType(requestedType);
+  const storedRoundNumber = Number(run.roundNumber);
+  const roundNumber = Number.isInteger(storedRoundNumber) && storedRoundNumber > 0 ? storedRoundNumber : runIndex + 1;
 
   if (pointType === POINT_TYPE_TURNING) {
-    const used = new Set();
     let greatest = 0;
-    const considerName = (value) => {
-      const name = cleanPointName(value);
-      if (name) used.add(name);
-      const match = /^DC(\d+)$/.exec(name);
+    const pattern = new RegExp(`^${roundNumber}\\.(\\d+)$`);
+    (run.stations || []).forEach((station) => {
+      const match = pattern.exec(cleanPointName(station.point));
       if (match) greatest = Math.max(greatest, Number(match[1]));
-    };
-    considerName(run.startPoint);
-    (run.stations || []).forEach((station) => considerName(station.point));
-    let index = greatest + 1;
-    while (used.has(`DC${index}`)) index += 1;
-    return `DC${index}`;
+    });
+    return `${roundNumber}.${greatest + 1}`;
   }
 
   const origin = autoNamePart(stationOrigin(run, stationIndex));
-  const storedRoundNumber = Number(run.roundNumber);
-  const roundNumber = Number.isInteger(storedRoundNumber) && storedRoundNumber > 0 ? storedRoundNumber : runIndex + 1;
   const roundTag = roundNumber > 1 ? `_L${roundNumber}` : '';
   const base = `TP_${origin}${roundTag}`;
   const pattern = new RegExp(`^${escapeRegExp(base)}\\.(\\d+)$`);
