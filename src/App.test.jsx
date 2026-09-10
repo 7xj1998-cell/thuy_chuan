@@ -71,6 +71,24 @@ describe('cấu trúc giao diện mobile', () => {
     expect(html).not.toContain('value="2000.000"');
   });
 
+  it('đo 3 chỉ dùng hai thẻ toàn chiều rộng và bảo vệ cả sáu ô số đọc', () => {
+    localStorage.setItem('so-thuy-chuan.active-draft.v2', JSON.stringify({
+      schemaVersion: 6,
+      id: 'book-three-reading',
+      name: 'Sổ đo 3 chỉ',
+      benchmarks: [{ id: 'b1', name: 'DG1', elevation: '1,000' }],
+      runs: [{ id: 'r1', name: 'Lượt 1', roundNumber: 1, startPoint: 'DG1', startMode: 'known', mode: 'three', stations: [{
+        id: 's1', point: '', pointType: 'turning', bsUpper: '1,234', bsMiddle: '1,200', bsLower: '1,166', fsUpper: '0,998', fsMiddle: '0,965', fsLower: '0,932',
+      }] }],
+      settings: {},
+    }));
+    const html = renderToStaticMarkup(<App />);
+    expect(html).toContain('readings is-three');
+    expect(html).toContain('value="1,234"');
+    expect(html).toContain('value="0,932"');
+    expect(html.match(/data-confirm-clear="true"/g)).toHaveLength(6);
+  });
+
   it('hiển thị đúng bước chọn mốc cho lượt chưa có điểm đầu', () => {
     localStorage.setItem('so-thuy-chuan.active-draft.v2', JSON.stringify({
       schemaVersion: 5,

@@ -94,16 +94,24 @@ function pulse(pattern) {
   } catch { /* haptics are optional on iOS/WebView */ }
 }
 
-function MeterInput({ value, onValueChange, staffReading = false, sanitizer = sanitizeMeterInput, normalizer, className = '', placeholder = '0,000', onKeyDown, onComplete, ...props }) {
+function MeterInput({ value, onValueChange, staffReading = false, sanitizer = sanitizeMeterInput, normalizer, className = '', placeholder = '0,000', onKeyDown, onComplete, confirmClear, ...props }) {
   const normalize = normalizer || (staffReading ? normalizeStaffInput : normalizeMeterInput);
   return (
     <input
       {...props}
       className={`${className} numeric meter-input`.trim()}
       inputMode="decimal"
+      data-confirm-clear={confirmClear ? 'true' : undefined}
       placeholder={placeholder}
       value={value}
-      onChange={(event) => onValueChange(sanitizer(event.target.value))}
+      onChange={(event) => {
+        const nextValue = sanitizer(event.target.value);
+        if (String(value ?? '').trim() && !nextValue && confirmClear) {
+          confirmClear(() => onValueChange(''));
+          return;
+        }
+        onValueChange(nextValue);
+      }}
       onBlur={(event) => onValueChange(normalize(event.currentTarget.value))}
       onKeyDown={(event) => {
         onKeyDown?.(event);
@@ -562,6 +570,18 @@ export default function App() {
       },
     });
   }
+  function requestClearReading(label, clearValue, field) {
+    setDialog({
+      title: `Xóa ${label}?`,
+      description: 'Số đọc hiện tại sẽ bị xóa. Các ô khác của trạm vẫn được giữ nguyên.',
+      confirmLabel: 'Xóa số đọc',
+      onConfirm: () => {
+        clearValue();
+        setDialog(null);
+        window.setTimeout(() => measureRef.current?.querySelector(`[data-reading="${field}"]`)?.focus({ preventScroll: true }), 0);
+      },
+    });
+  }
   function saveAs() {
     const name = prompt('Tên bản sao:', book.name + ' - bản sao');
     if (name?.trim() && library.copyBook(name.trim())) setToast({ text: 'Đã tạo bản sao trong thư viện' });
@@ -639,7 +659,7 @@ export default function App() {
     <div className="app-v3 app-v25 app-v27 app-v28" data-outdoor={outdoor ? 'true' : 'false'}>
       <header className="workspace-header">
         <div className="brand-mark" aria-hidden="true"><img src="/level-mark.svg" alt="" /></div>
-        <div className="brand-copy"><div className="eyebrow">THỦY CHUẨN <span className="version-badge">2.8.1</span></div><h1>{book.name}</h1></div>
+        <div className="brand-copy"><div className="eyebrow">THỦY CHUẨN <span className="version-badge">2.8.2</span></div><h1>{book.name}</h1></div>
         <div className="workspace-status"><button className="iconbtn" onClick={renameBook} aria-label="Đổi tên sổ"><PencilLine /></button></div>
       </header>
       <main id="main-content" data-tab={tab}>
@@ -647,7 +667,7 @@ export default function App() {
         {library.storageError && <div className="storage-banner" role="alert"><TriangleAlert /><div><b>Cần bảo vệ dữ liệu</b><p>{library.storageError}</p><button onClick={backupAll} disabled={Boolean(exporting)}>Tải sao lưu ngay</button><button onClick={save}>Thử lưu lại</button></div></div>}
         {library.saveState === 'recovered' && !library.storageError && <p className="storage-banner" role="status">Đã khôi phục thư viện từ bản lưu an toàn gần nhất.</p>}
         {tab === 'route' && <RunPicker runs={book.runs} solvedRuns={solvedRuns} runId={activeRun.id} onSelect={selectRun} onAdd={() => addRun()} />}
-        {tab === 'measure' && <div ref={measureRef}><Measure book={book} runs={book.runs} availablePoints={availablePoints} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} updateStation={updateStation} finish={() => finishStation()} changeMode={changeMode} checksRequested={checksRequested} saveState={library.saveState} onSelectRun={selectRun} onOpenSettings={() => openRunSettings(activeRun.id)} onUndo={requestUndo} undoEntry={undoEntry} onStart={(name, startMode) => setRunOrigin(activeRun, name, { confirm: false, initial: true, startMode })} onManageBenchmarks={goToBenchmarks} /></div>}
+        {tab === 'measure' && <div ref={measureRef}><Measure book={book} runs={book.runs} availablePoints={availablePoints} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} updateStation={updateStation} finish={() => finishStation()} changeMode={changeMode} checksRequested={checksRequested} saveState={library.saveState} onSelectRun={selectRun} onOpenSettings={() => openRunSettings(activeRun.id)} onUndo={requestUndo} undoEntry={undoEntry} onRequestClear={requestClearReading} onStart={(name, startMode) => setRunOrigin(activeRun, name, { confirm: false, initial: true, startMode })} onManageBenchmarks={goToBenchmarks} /></div>}
         {tab === 'route' && <><ElevationProfile solved={activeSolved} /><Route run={activeRun} solved={activeSolved} addStation={addStation} edit={(index) => { setStationIndex(index); changeTab('measure'); }} remove={deleteStation} onOpenSettings={() => openRunSettings(activeRun.id)} /></>}
         {tab === 'result' && <Results book={book} solvedRuns={solvedRuns} updateBook={updateBook} />}
         {tab === 'files' && <Files book={book} books={books} library={library} updateBook={updateBook} newBook={newBook} save={save} saveAs={saveAs} exportExcel={() => exportReport('xlsx')} exportPdf={() => exportReport('pdf')} backupAll={backupAll} exporting={exporting} fileRef={fileRef} importFile={importFile} availablePoints={availablePoints} setDialog={setDialog} outdoor={outdoor} setOutdoor={setOutdoor} />}
@@ -765,7 +785,7 @@ function StartSession({ book, run, onStart, onManageBenchmarks }) {
   </form>;
 }
 
-function Measure({ book, runs, availablePoints, run, solved, index, setIndex, updateStation, finish, changeMode, checksRequested, saveState, onSelectRun, onOpenSettings, onUndo, undoEntry, onStart, onManageBenchmarks }) {
+function Measure({ book, runs, availablePoints, run, solved, index, setIndex, updateStation, finish, changeMode, checksRequested, saveState, onSelectRun, onOpenSettings, onUndo, undoEntry, onRequestClear, onStart, onManageBenchmarks }) {
   const station = run.stations[index];
   const row = solved.rows[index];
   if (!station) return null;
@@ -774,6 +794,7 @@ function Measure({ book, runs, availablePoints, run, solved, index, setIndex, up
   const displayPoint = station.point || autoName;
   const inspection = inspectStation(book, run, index, autoName);
   const update = (field, value) => updateStation(run, station.id, field, value);
+  const confirmClear = (field, label) => (apply) => onRequestClear(label, apply, field);
   const usedControls = run.stations.slice(0, index).map((item) => item.point).filter(isNamedControlPoint);
   const recentControl = usedControls.filter((name) => /^DC/i.test(name)).at(-1) || null;
   const unresolved = row?.elevation === null || row?.elevation === undefined;
@@ -804,15 +825,15 @@ function Measure({ book, runs, availablePoints, run, solved, index, setIndex, up
                 <button type="button" aria-pressed={run.mode === 'three'} className={run.mode === 'three' ? 'active' : ''} onClick={() => changeMode('three')}>3 chỉ</button>
               </div>
             </div>
-            <div className="reading-grid readings">
+            <div className={`reading-grid readings${run.mode === 'three' ? ' is-three' : ''}`}>
               {run.mode === 'single' ? <>
                 <div className="reading reading-bs"><div className="reading-title"><span>Mia sau<small>Số đọc theo mét</small></span><em>BS</em></div>
-                  <MeterInput className="hero-input" data-reading="bs" staffReading aria-label="Số đọc mia sau BS theo mét" aria-invalid={checksRequested && inspection.errors.some((item) => item.field === 'bs')} enterKeyHint="next" value={station.bs} onValueChange={(value) => update('bs', value)} onFocus={(event) => event.target.select()} /></div>
+                  <MeterInput className="hero-input" data-reading="bs" staffReading aria-label="Số đọc mia sau BS theo mét" aria-invalid={checksRequested && inspection.errors.some((item) => item.field === 'bs')} enterKeyHint="next" value={station.bs} onValueChange={(value) => update('bs', value)} confirmClear={confirmClear('bs', 'số đọc mia sau BS')} onFocus={(event) => event.target.select()} /></div>
                 <div className="reading reading-fs"><div className="reading-title"><span>Mia trước<small>Số đọc theo mét</small></span><em>FS</em></div>
-                  <MeterInput className="hero-input" data-reading="fs" staffReading aria-label="Số đọc mia trước FS theo mét" aria-invalid={checksRequested && inspection.errors.some((item) => item.field === 'fs')} enterKeyHint="done" value={station.fs} onValueChange={(value) => update('fs', value)} onComplete={finish} onFocus={(event) => event.target.select()} /></div>
+                  <MeterInput className="hero-input" data-reading="fs" staffReading aria-label="Số đọc mia trước FS theo mét" aria-invalid={checksRequested && inspection.errors.some((item) => item.field === 'fs')} enterKeyHint="done" value={station.fs} onValueChange={(value) => update('fs', value)} confirmClear={confirmClear('fs', 'số đọc mia trước FS')} onComplete={finish} onFocus={(event) => event.target.select()} /></div>
               </> : <>
-                <Staff title="Mia sau" prefix="bs" station={station} row={row} update={update} />
-                <Staff title="Mia trước" prefix="fs" station={station} row={row} update={update} finish={finish} />
+                <Staff title="Mia sau" prefix="bs" station={station} row={row} update={update} confirmClear={confirmClear} />
+                <Staff title="Mia trước" prefix="fs" station={station} row={row} update={update} confirmClear={confirmClear} finish={finish} />
               </>}
             </div>
             <div className="result-strip" aria-label="Kết quả tính tức thời">
@@ -850,14 +871,18 @@ function CaptureDock({ book, run, solved, index, setIndex, finish }) {
     <div className="field-actions"><button className="step-button" aria-label="Trạm trước" title="Trạm trước" onClick={() => setIndex(Math.max(0, index - 1))} disabled={index === 0}><ChevronLeft /></button><button type="button" className="primary finish" onClick={finish}><Check />{station.committedAt ? 'Cập nhật trạm' : 'Lưu trạm'}</button><button className="step-button" aria-label="Trạm tiếp theo" title="Trạm tiếp theo" onClick={() => setIndex(Math.min(run.stations.length - 1, index + 1))} disabled={index === run.stations.length - 1}><ChevronRight /></button></div>
   </div>;
 }
-function Staff({ title, prefix, station, row, update, finish }) {
+function Staff({ title, prefix, station, row, update, confirmClear, finish }) {
   return (
     <div className={`reading reading-${prefix}`}>
       <div className="reading-title"><span>{title}<small>Ba chỉ · mét</small></span><em>{prefix.toUpperCase()} · m</em></div>
       <div className="threegrid">
-        {[['Upper', 'Trên'], ['Middle', 'Giữa'], ['Lower', 'Dưới']].map(([suffix, label]) => (
-          <label key={suffix}>{label}<MeterInput data-reading={`${prefix}${suffix}`} staffReading aria-label={`${title} chỉ ${label.toLowerCase()} theo mét`} enterKeyHint="next" value={station[`${prefix}${suffix}`]} onValueChange={(value) => update(`${prefix}${suffix}`, value)} onComplete={prefix === 'fs' && suffix === 'Lower' ? finish : undefined} onFocus={(event) => event.target.select()} /></label>
-        ))}
+        {[['Upper', 'Trên'], ['Middle', 'Giữa'], ['Lower', 'Dưới']].map(([suffix, label], order) => {
+          const field = `${prefix}${suffix}`;
+          const isLast = prefix === 'fs' && suffix === 'Lower';
+          return (
+            <label key={suffix}><span><b>{order + 1}</b>{label}</span><MeterInput data-reading={field} staffReading autoComplete="off" spellCheck={false} aria-label={`${title} chỉ ${label.toLowerCase()} theo mét`} enterKeyHint={isLast ? 'done' : 'next'} value={station[field]} onValueChange={(value) => update(field, value)} confirmClear={confirmClear(field, `${title.toLowerCase()} chỉ ${label.toLowerCase()}`)} onComplete={isLast ? finish : undefined} /></label>
+          );
+        })}
       </div>
       <div className="staffmeta">
         <span>Cự ly <b className="numeric">{formatMeters(prefix === 'bs' ? row?.db : row?.df)} m</b></span>

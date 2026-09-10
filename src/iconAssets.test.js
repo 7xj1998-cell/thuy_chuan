@@ -10,7 +10,7 @@ describe('bộ icon phát hành', () => {
     const html = text('../index.html');
     expect(html.match(/rel="apple-touch-icon"/g)).toHaveLength(1);
     expect(html.match(/rel="manifest"/g)).toHaveLength(1);
-    expect(html).toContain('manifest.webmanifest?v=2.8.1');
+    expect(html).toContain('manifest.webmanifest?v=2.8.2');
   });
 
   it('AppIcon iOS dùng đúng ảnh nguồn 1024 hiện tại', () => {

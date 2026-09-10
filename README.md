@@ -2,6 +2,13 @@
 
 Ứng dụng ghi, tính và bình sai cao độ cho nhiều lượt đo độc lập, dùng chung mã nguồn cho web, iPhone và Android.
 
+## Phiên bản 2.8.2
+
+- Thiết kế lại chế độ đo 3 chỉ thành hai thẻ Mia sau/Mia trước toàn chiều rộng; sáu số đọc hiển thị đầy đủ, có thứ tự Trên–Giữa–Dưới rõ ràng và tự xếp dọc trên màn hình hẹp.
+- Thêm hộp thoại xác nhận trước khi xóa số đọc đã nhập; chỉ ô được chọn bị xóa và con trỏ trở lại đúng vị trí để nhập lại.
+- Chuyển các thẻ kỹ thuật trong tab Tuyến sang nền trắng/xám trung tính, tăng tương phản và giảm nhiễu màu khi đọc ngoài hiện trường.
+- Giữ nguyên thuật toán tính cao độ, cấu trúc dữ liệu và khả năng mở sổ cũ.
+
 ## Phiên bản 2.8.1
 
 - Bỏ nút gợi ý nhanh “Chọn DC…” để tránh chạm nhầm; việc chọn điểm khống chế vẫn thực hiện chủ động trong ô Điểm tới.
