@@ -6,6 +6,7 @@ import { adjustLevelingNetwork, compareRuns, STORAGE_KEYS } from './model';
 import { POINT_TYPE_SIDE } from './pointNames';
 import interFontUrl from './assets/InterVariable.ttf?url';
 import { OPEN_ROUTE_WARNING } from './terminology';
+import { evaluateRunStandard, getLevelingClass, toleranceCoefficientForClass } from './levelingStandards';
 import {
   formatReportElevation,
   formatReportMeters,
@@ -17,6 +18,7 @@ import {
 const EXCEL_METER_FORMAT = '0.000';
 const EXCEL_MM_FORMAT = '0';
 const EXCEL_SIGNED_MM_FORMAT = '+0;-0;0';
+const EXCEL_DECIMAL_MM_FORMAT = '0.0';
 
 const finiteOrBlank = (value) => typeof value === 'number' && Number.isFinite(value) ? value : '';
 const metersFromMillimetersOrBlank = (value) => finiteOrBlank(millimetersToMeters(value));
@@ -71,7 +73,8 @@ export async function createExcelWorkbook(book, solvedRuns) {
   const XLSX = await import('xlsx');
   const workbook = XLSX.utils.book_new();
   const comparisons = compareRuns(solvedRuns, book.benchmarks);
-  const network = adjustLevelingNetwork(solvedRuns, book.benchmarks, book.settings.toleranceCoefficient);
+  const standard = getLevelingClass(book.settings.measurementClass);
+  const network = adjustLevelingNetwork(solvedRuns, book.benchmarks, toleranceCoefficientForClass(book.settings.measurementClass));
 
   appendSheet(XLSX, workbook, 'Thông tin', [{
     'Tên sổ': book.name,
@@ -79,7 +82,26 @@ export async function createExcelWorkbook(book, solvedRuns) {
     'Ngày cập nhật': new Date().toLocaleString(),
     'Đơn vị cao độ và số đọc': 'm',
     'Đơn vị chênh cao và số hiệu chỉnh': 'mm',
+    'Hạng đo': standard?.label || 'CHƯA CHỌN',
+    'Hạn sai khép': standard ? `|fh| ≤ ${standard.coefficient}√L mm (L tính bằng km)` : 'Chưa chọn hạng đo',
   }]);
+
+  const closureRows = solvedRuns.map((solved) => {
+    const assessment = evaluateRunStandard(solved, book.settings.measurementClass);
+    return {
+      'Lượt đo': solved.runName,
+      'Hạng đo': standard?.label || 'CHƯA CHỌN',
+      'Chiều dài (m)': finiteOrBlank(solved.totalDistance),
+      'Sai số khép fh (mm)': millimetersOrBlank(assessment.closure),
+      'Hạn sai C√L (mm)': finiteOrBlank(assessment.allowable),
+      'Nhận xét': assessment.status === 'passed' ? 'ĐẠT' : assessment.status === 'failed' ? 'KHÔNG ĐẠT' : assessment.status === 'unselected' ? 'CHƯA CHỌN HẠNG ĐO' : assessment.status === 'missing-distance' ? 'CHƯA ĐỦ CHIỀU DÀI' : 'CHƯA ĐỦ ĐIỀU KIỆN ĐÁNH GIÁ',
+    };
+  });
+  appendSheet(XLSX, workbook, 'Kiểm tra khép', closureRows, {
+    'Chiều dài (m)': EXCEL_METER_FORMAT,
+    'Sai số khép fh (mm)': EXCEL_SIGNED_MM_FORMAT,
+    'Hạn sai C√L (mm)': EXCEL_DECIMAL_MM_FORMAT,
+  });
 
   const benchmarkRows = book.benchmarks.map((benchmark) => ({
     'Tên mốc': benchmark.name,
@@ -255,12 +277,23 @@ function pdfMillimeters(value, locale, signed = false) {
   return value === null || value === undefined || !Number.isFinite(value) ? '—' : `${formatReportMillimeters(value, { locale, signed })} mm`;
 }
 
+function pdfStandardAssessment(assessment, locale) {
+  if (assessment.status === 'unselected') return 'Chưa chọn hạng đo nên chưa thể đánh giá sai số khép.';
+  if (assessment.status === 'incomplete') return 'Chưa đủ điều kiện đánh giá: tuyến cần khép hoặc nối giữa hai mốc có cao độ.';
+  if (assessment.status === 'missing-distance') return 'Chưa đủ chiều dài tuyến để đánh giá sai số khép.';
+  const comparison = assessment.passed ? '≤' : '>';
+  const result = assessment.passed ? 'ĐẠT' : 'KHÔNG ĐẠT';
+  const limit = new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(assessment.allowable);
+  return `${result} ${assessment.standard.shortLabel}: |fh| = ${formatReportMillimeters(Math.abs(assessment.closure), { locale })} mm ${comparison} ${assessment.standard.coefficient}√${formatReportMeters(assessment.lengthKm, locale)} = ${limit} mm.`;
+}
+
 export async function createPdfDocument(book, solvedRuns, options = {}) {
   const [{ jsPDF }, { autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true });
   await registerPdfFont(doc, options.fontBuffer);
   const locale = options.locale || 'vi-VN';
-  const network = adjustLevelingNetwork(solvedRuns, book.benchmarks, book.settings.toleranceCoefficient);
+  const standard = getLevelingClass(book.settings.measurementClass);
+  const network = adjustLevelingNetwork(solvedRuns, book.benchmarks, toleranceCoefficientForClass(book.settings.measurementClass));
   const comparisons = compareRuns(solvedRuns, book.benchmarks);
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -305,22 +338,26 @@ export async function createPdfDocument(book, solvedRuns, options = {}) {
   doc.setFontSize(10);
   doc.setTextColor(71, 85, 105);
   doc.text(book.name, margin, 25);
+  doc.setFontSize(8.5);
+  doc.text(standard ? `${standard.label} · |fh| ≤ ${standard.coefficient}√L mm · L tính bằng km` : 'Hạng đo: Chưa chọn', margin, 29);
   doc.text(`Ngày xuất: ${new Date().toLocaleString(locale)}`, pageWidth - margin, 25, { align: 'right' });
 
   autoTable(doc, {
     ...tableStyles,
-    startY: 31,
+    startY: 34,
     head: [['Mốc chuẩn', 'Cao độ H (m)']],
     body: book.benchmarks.map((benchmark) => [benchmark.name || '—', numberOf(benchmark.elevation) === null ? '—' : `${formatReportMeters(numberOf(benchmark.elevation), locale)} m`]),
     tableWidth: 100,
   });
-  let y = (doc.lastAutoTable?.finalY || 31) + 9;
+  let y = (doc.lastAutoTable?.finalY || 34) + 9;
 
   solvedRuns.forEach((solved, runIndex) => {
     const run = book.runs[runIndex];
     const endPoint = solved.endPoint || run.startPoint || '—';
     const reportRows = solved.rows.filter((row) => row.point);
     y = sectionTitle(`${run.name} · ${run.startPoint || '—'} → ${endPoint} · ${reportRows.length} trạm`, y);
+    const assessment = evaluateRunStandard(solved, book.settings.measurementClass);
+    y = paragraph(pdfStandardAssessment(assessment, locale), y + 2, assessment.status === 'failed' ? [159, 18, 57] : assessment.status === 'passed' ? [7, 95, 82] : [138, 91, 0]);
     autoTable(doc, {
       ...tableStyles,
       startY: y,

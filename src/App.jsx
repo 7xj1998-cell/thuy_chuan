@@ -65,7 +65,14 @@ import {
 import { EMPTY_PANEL_STATE, panelReducer } from './panelState';
 import { OPEN_ROUTE_WARNING } from './terminology';
 import {
+  evaluateRunStandard,
+  getLevelingClass,
+  LEVELING_CLASSES,
+  toleranceCoefficientForClass,
+} from './levelingStandards';
+import {
   canonicalBenchmarkElevationDraft,
+  formatDistanceMeters,
   formatElevation,
   formatMeters,
   formatMillimeters,
@@ -84,6 +91,8 @@ const NAV_ITEMS = [
   { id: 'result', label: 'Kết quả', Icon: BarChart2 },
   { id: 'files', label: 'Sổ & tệp', Icon: FolderOpen },
 ];
+const THREE_READING_ROWS = [['Upper', 'Trên'], ['Middle', 'Giữa'], ['Lower', 'Dưới']];
+const THREE_READING_PREFIXES = ['bs', 'fs'];
 
 const SWIPE_REVEAL_PX = 80;
 const OUTDOOR_STORAGE_KEY = 'so-thuy-chuan.outdoor-mode.v1';
@@ -669,7 +678,7 @@ export default function App() {
         {tab === 'route' && <RunPicker runs={book.runs} solvedRuns={solvedRuns} runId={activeRun.id} onSelect={selectRun} onAdd={() => addRun()} />}
         {tab === 'measure' && <div ref={measureRef}><Measure book={book} runs={book.runs} availablePoints={availablePoints} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} updateStation={updateStation} finish={() => finishStation()} changeMode={changeMode} checksRequested={checksRequested} saveState={library.saveState} onSelectRun={selectRun} onOpenSettings={() => openRunSettings(activeRun.id)} onUndo={requestUndo} undoEntry={undoEntry} onRequestClear={requestClearReading} onStart={(name, startMode) => setRunOrigin(activeRun, name, { confirm: false, initial: true, startMode })} onManageBenchmarks={goToBenchmarks} /></div>}
         {tab === 'route' && <><ElevationProfile solved={activeSolved} /><Route run={activeRun} solved={activeSolved} addStation={addStation} edit={(index) => { setStationIndex(index); changeTab('measure'); }} remove={deleteStation} onOpenSettings={() => openRunSettings(activeRun.id)} /></>}
-        {tab === 'result' && <Results book={book} solvedRuns={solvedRuns} updateBook={updateBook} />}
+        {tab === 'result' && <Results book={book} solvedRuns={solvedRuns} />}
         {tab === 'files' && <Files book={book} books={books} library={library} updateBook={updateBook} newBook={newBook} save={save} saveAs={saveAs} exportExcel={() => exportReport('xlsx')} exportPdf={() => exportReport('pdf')} backupAll={backupAll} exporting={exporting} fileRef={fileRef} importFile={importFile} availablePoints={availablePoints} setDialog={setDialog} outdoor={outdoor} setOutdoor={setOutdoor} />}
       </main>
       {tab === 'measure' && activeRun.startPoint && <CaptureDock book={book} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} finish={() => finishStation()} />}
@@ -831,10 +840,7 @@ function Measure({ book, runs, availablePoints, run, solved, index, setIndex, up
                   <MeterInput className="hero-input" data-reading="bs" staffReading aria-label="Số đọc mia sau BS theo mét" aria-invalid={checksRequested && inspection.errors.some((item) => item.field === 'bs')} enterKeyHint="next" value={station.bs} onValueChange={(value) => update('bs', value)} confirmClear={confirmClear('bs', 'số đọc mia sau BS')} onFocus={(event) => event.target.select()} /></div>
                 <div className="reading reading-fs"><div className="reading-title"><span>Mia trước<small>Số đọc theo mét</small></span><em>FS</em></div>
                   <MeterInput className="hero-input" data-reading="fs" staffReading aria-label="Số đọc mia trước FS theo mét" aria-invalid={checksRequested && inspection.errors.some((item) => item.field === 'fs')} enterKeyHint="done" value={station.fs} onValueChange={(value) => update('fs', value)} confirmClear={confirmClear('fs', 'số đọc mia trước FS')} onComplete={finish} onFocus={(event) => event.target.select()} /></div>
-              </> : <>
-                <Staff title="Mia sau" prefix="bs" station={station} row={row} update={update} confirmClear={confirmClear} />
-                <Staff title="Mia trước" prefix="fs" station={station} row={row} update={update} confirmClear={confirmClear} finish={finish} />
-              </>}
+              </> : <ThreeReadingMatrix station={station} row={row} update={update} confirmClear={confirmClear} finish={finish} />}
             </div>
             <div className="result-strip" aria-label="Kết quả tính tức thời">
               <div><span>H tới · {displayPoint}</span><strong className="numeric">{elevationText}</strong></div>
@@ -871,22 +877,27 @@ function CaptureDock({ book, run, solved, index, setIndex, finish }) {
     <div className="field-actions"><button className="step-button" aria-label="Trạm trước" title="Trạm trước" onClick={() => setIndex(Math.max(0, index - 1))} disabled={index === 0}><ChevronLeft /></button><button type="button" className="primary finish" onClick={finish}><Check />{station.committedAt ? 'Cập nhật trạm' : 'Lưu trạm'}</button><button className="step-button" aria-label="Trạm tiếp theo" title="Trạm tiếp theo" onClick={() => setIndex(Math.min(run.stations.length - 1, index + 1))} disabled={index === run.stations.length - 1}><ChevronRight /></button></div>
   </div>;
 }
-function Staff({ title, prefix, station, row, update, confirmClear, finish }) {
+function ThreeReadingMatrix({ station, row, update, confirmClear, finish }) {
   return (
-    <div className={`reading reading-${prefix}`}>
-      <div className="reading-title"><span>{title}<small>Ba chỉ · mét</small></span><em>{prefix.toUpperCase()} · m</em></div>
-      <div className="threegrid">
-        {[['Upper', 'Trên'], ['Middle', 'Giữa'], ['Lower', 'Dưới']].map(([suffix, label], order) => {
-          const field = `${prefix}${suffix}`;
-          const isLast = prefix === 'fs' && suffix === 'Lower';
-          return (
-            <label key={suffix}><span><b>{order + 1}</b>{label}</span><MeterInput data-reading={field} staffReading autoComplete="off" spellCheck={false} aria-label={`${title} chỉ ${label.toLowerCase()} theo mét`} enterKeyHint={isLast ? 'done' : 'next'} value={station[field]} onValueChange={(value) => update(field, value)} confirmClear={confirmClear(field, `${title.toLowerCase()} chỉ ${label.toLowerCase()}`)} onComplete={isLast ? finish : undefined} /></label>
-          );
-        })}
+    <div className="reading three-reading-matrix">
+      <div className="three-matrix-head" aria-hidden="true"><span>Chỉ</span><b>Mia sau <em>BS</em></b><b>Mia trước <em>FS</em></b></div>
+      <div className="three-matrix-body">
+        {THREE_READING_ROWS.map(([suffix, label], order) => (
+          <div className="three-matrix-row" key={suffix}>
+            <span className="three-row-label"><b>{order + 1}</b>{label}</span>
+            {THREE_READING_PREFIXES.map((prefix) => {
+              const field = `${prefix}${suffix}`;
+              const title = prefix === 'bs' ? 'Mia sau' : 'Mia trước';
+              const isLast = prefix === 'fs' && suffix === 'Lower';
+              return <MeterInput key={field} data-reading={field} staffReading autoComplete="off" spellCheck={false} aria-label={`${title} chỉ ${label.toLowerCase()} theo mét`} enterKeyHint={isLast ? 'done' : 'next'} value={station[field]} onValueChange={(value) => update(field, value)} confirmClear={confirmClear(field, `${title.toLowerCase()} chỉ ${label.toLowerCase()}`)} onComplete={isLast ? finish : undefined} />;
+            })}
+          </div>
+        ))}
       </div>
-      <div className="staffmeta">
-        <span>Cự ly <b className="numeric">{formatMeters(prefix === 'bs' ? row?.db : row?.df)} m</b></span>
-        <span>Sai số giữa <b className="numeric">{formatSignedMillimeters(prefix === 'bs' ? row?.bsMiddleError : row?.fsMiddleError)} mm</b></span>
+      <div className="three-matrix-stats">
+        <span>D sau <b className="numeric">{formatMeters(row?.db)} m</b></span>
+        <span>D trước <b className="numeric">{formatMeters(row?.df)} m</b></span>
+        <span>ΔD <b className="numeric">{formatMeters(row?.distanceDifference)} m</b></span>
       </div>
     </div>
   );
@@ -986,9 +997,11 @@ function comparisonDirection(pair) {
   return `${pair.toRunName} ${pair.difference > 0 ? 'cao hơn' : 'thấp hơn'} ${pair.fromRunName}`;
 }
 
-function Results({ book, solvedRuns, updateBook }) {
+const formatLimitMillimeters = (value) => Number.isFinite(value) ? new Intl.NumberFormat('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value) : '—';
+
+function Results({ book, solvedRuns }) {
   const comparisons = compareRuns(solvedRuns, book.benchmarks);
-  const coefficient = book.settings.toleranceCoefficient;
+  const coefficient = toleranceCoefficientForClass(book.settings.measurementClass);
   const network = adjustLevelingNetwork(solvedRuns, book.benchmarks, coefficient);
   return (
     <section className="result-shell">
@@ -1000,12 +1013,13 @@ function Results({ book, solvedRuns, updateBook }) {
             <div className="card-heading"><span>Lượt đo</span><h3>{solved.runName}</h3></div>
             <div className="metric">
               <div><span>ĐC / TP</span><b className="numeric">{solved.turningCount} / {solved.sideCount}</b></div>
-              <div><span>Chiều dài</span><b className="numeric">{solved.totalDistance === null ? '—' : `${formatMeters(solved.totalDistance)} m`}</b></div>
+              <div><span>Chiều dài</span><b className="numeric">{solved.totalDistance === null ? '—' : `${formatDistanceMeters(solved.totalDistance)} m`}</b></div>
               <div><span>ΣΔD</span><b className="numeric">{formatMeters(solved.sumDistanceDifference)} m</b></div>
             </div>
             {solved.checks.length ? solved.checks.map((check) => (
               <div className="check benchmark-summary" key={`${solved.runId}-${check.index}`}><b>{check.name}</b><span className="numeric">Chuẩn {formatElevation(check.known)} m · Đo {formatElevation(check.measured)} m · Lệch {formatSignedMillimeters(check.difference)} mm</span></div>
             )) : <p className="warning">Lượt này chưa chứa mốc chuẩn.</p>}
+            <RunStandardAssessment assessment={evaluateRunStandard(solved, book.settings.measurementClass)} />
           </div>
         ))}
       </div>
@@ -1029,11 +1043,20 @@ function Results({ book, solvedRuns, updateBook }) {
       </div>
       <div className="result-area" data-result-area="adjustment">
         <NetworkAdjustment network={network} />
-        <div className="card tolerance-card">
-          <label>Hệ số C <span>mm/√km</span><input className="numeric" inputMode="decimal" value={coefficient} onChange={(event) => updateBook((previous) => ({ ...previous, settings: { ...previous.settings, toleranceCoefficient: event.target.value } }))} /></label>
-        </div>
       </div>
     </section>
+  );
+}
+
+function RunStandardAssessment({ assessment }) {
+  if (assessment.status === 'unselected') return <div className="standard-assessment is-pending" role="status"><b>Chưa chọn hạng đo</b><span>Chọn hạng tại tab Sổ & tệp để đánh giá sai số khép.</span></div>;
+  if (assessment.status === 'incomplete') return <div className="standard-assessment is-pending" role="status"><b>Chưa đủ điều kiện đánh giá</b><span>Tuyến cần khép hoặc nối giữa hai mốc có cao độ.</span></div>;
+  if (assessment.status === 'missing-distance') return <div className="standard-assessment is-pending" role="status"><b>Chưa đủ chiều dài tuyến</b><span>Nhập đủ khoảng cách để áp dụng {assessment.standard.coefficient}√L.</span></div>;
+  return (
+    <div className={`standard-assessment ${assessment.passed ? 'is-passed' : 'is-failed'}`} role="status">
+      <span className="standard-state">{assessment.passed ? <Check aria-hidden="true" /> : <TriangleAlert aria-hidden="true" />}<b>{assessment.passed ? 'Đạt' : 'Không đạt'} {assessment.standard.shortLabel}</b></span>
+      <span className="numeric">|fₕ| = {formatMillimeters(Math.abs(assessment.closure))} mm {assessment.passed ? '≤' : '>'} {assessment.standard.coefficient}√{formatDistanceMeters(assessment.lengthKm)} = {formatLimitMillimeters(assessment.allowable)} mm</span>
+    </div>
   );
 }
 
@@ -1087,6 +1110,7 @@ function SidePointTable({ points = [] }) {
 function Files({ book, books, library, updateBook, newBook, save, saveAs, exportExcel, exportPdf, backupAll, exporting, fileRef, importFile, availablePoints, setDialog, outdoor, setOutdoor }) {
   const [query, setQuery] = useState('');
   const filtered = books.filter((item) => item.name.toLocaleLowerCase('vi').includes(query.toLocaleLowerCase('vi')));
+  const selectedStandard = getLevelingClass(book.settings.measurementClass);
   const fileActions = [
     { label: 'Sổ mới', Icon: FilePlus2, onClick: newBook, primary: true },
     { label: 'Nhập sổ', Icon: Upload, onClick: () => fileRef.current.click() },
@@ -1105,6 +1129,14 @@ function Files({ book, books, library, updateBook, newBook, save, saveAs, export
         <div className="file-actions">{fileActions.map(({ label, Icon, onClick, primary }) => <button key={label} className={primary ? 'action-tile primary-tile' : 'action-tile'} onClick={onClick} disabled={Boolean(exporting)}><span className="action-icon" aria-hidden="true"><Icon /></span><b>{label}</b></button>)}</div>
         {exporting && <p role="status" className="note">Đang xử lý tệp…</p>}
         <input ref={fileRef} aria-label="Chọn tệp nhập sổ" hidden type="file" accept=".xlsx,.xls,.json" onChange={(event) => { const file = event.target.files?.[0]; if (file) importFile(file); event.target.value = ''; }} />
+      </div>
+      <div className="card survey-standard-card">
+        <div className="card-heading"><span>Tiêu chuẩn kiểm tra khép</span><h3>Hạng đo</h3></div>
+        <label className="standard-select"><span className="sr-only">Chọn hạng đo</span><select aria-label="Chọn hạng đo" aria-required="true" value={book.settings.measurementClass || ''} onChange={(event) => updateBook((previous) => ({ ...previous, settings: { ...previous.settings, measurementClass: event.target.value } }), { checkpoint: 'Đổi hạng đo' })}>
+          <option value="">Chọn hạng đo…</option>
+          {LEVELING_CLASSES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+        </select></label>
+        {selectedStandard ? <div className="standard-formula"><span>Hạn sai khép cho phép</span><b className="numeric">|fₕ| ≤ {selectedStandard.coefficient}√L mm</b><small>L tính bằng km · {selectedStandard.source}</small></div> : <p className="standard-required"><TriangleAlert aria-hidden="true" />Cần chọn hạng đo trước khi phần Kết quả có thể nhận xét Đạt/Không đạt.</p>}
       </div>
       <div className="card benchmark-section" id="benchmark-section" tabIndex={-1}>
         <div className="card-title"><div className="card-heading"><span>Điểm gốc của sổ</span><h3>Mốc chuẩn</h3></div><button className="compact-button" onClick={() => updateBook((previous) => ({ ...previous, benchmarks: [...previous.benchmarks, createBenchmark()] }))}><Plus />Thêm mốc</button></div>

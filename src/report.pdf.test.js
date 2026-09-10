@@ -17,6 +17,7 @@ describe('báo cáo PDF kỹ thuật', () => {
     const book = normalizeBook({
       ...initial,
       name: 'Sổ kiểm tra tiếng Việt',
+      settings: { ...initial.settings, measurementClass: 'class-iv' },
       benchmarks: [{ ...initial.benchmarks[0], name: 'DG1', elevation: '0,750' }],
       runs: [{ ...initial.runs[0], name: 'Lượt kiểm tra', startPoint: 'DG1', stations }],
     });

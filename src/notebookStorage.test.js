@@ -78,7 +78,7 @@ describe('thư viện tự lưu và nhập tệp an toàn', () => {
     expect(createNotebookLibrary(storage).getSnapshot().book.name).toBe('Sổ đang nhập');
   });
 
-  it('nâng thư viện v5 lên v6 an toàn và có thể chạy migration nhiều lần', () => {
+  it('nâng thư viện v5 lên v7 an toàn và có thể chạy migration nhiều lần', () => {
     const storage = memoryStorage();
     const initial = createNotebookLibrary(storage);
     initial.initialize();
@@ -88,8 +88,8 @@ describe('thư viện tự lưu và nhập tệp an toàn', () => {
     storage.setItem(LIBRARY_KEYS.primary, JSON.stringify(old));
     const migrated = createNotebookLibrary(storage);
     expect(migrated.initialize()).toBe(true);
-    expect(saved(storage).schemaVersion).toBe(6);
-    expect(active(storage).schemaVersion).toBe(6);
+    expect(saved(storage).schemaVersion).toBe(7);
+    expect(active(storage).schemaVersion).toBe(7);
     expect(active(storage).runs.every((run) => run.startMode === 'known')).toBe(true);
     const once = storage.getItem(LIBRARY_KEYS.primary);
     expect(createNotebookLibrary(storage).initialize()).toBe(true);

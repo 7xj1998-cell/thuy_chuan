@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   canonicalBenchmarkElevationDraft,
+  formatDistanceMeters,
   formatElevation,
   formatMeters,
   formatMillimeters,
@@ -31,6 +32,11 @@ describe('chuẩn hóa đơn vị trắc địa', () => {
     expect(formatElevation(750)).toBe('0,750');
     expect(formatMeters(3.085)).toBe('3,085');
     expect(normalizeMeterInput('1')).toBe('1,000');
+  });
+
+  it('hiển thị tổng chiều dài theo mét không thêm ba số 0 không cần thiết', () => {
+    expect(formatDistanceMeters(2426)).toBe('2426');
+    expect(formatDistanceMeters(92.6)).toBe('92,6');
   });
 
   it('chuẩn hóa thao tác nhập mét bằng dấu phẩy và sửa số đọc mm cũ', () => {

@@ -19,6 +19,11 @@ const UI_METER_FORMATTER = new Intl.NumberFormat('vi-VN', {
   maximumFractionDigits: 3,
   useGrouping: false,
 });
+const UI_DISTANCE_FORMATTER = new Intl.NumberFormat('vi-VN', {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 3,
+  useGrouping: false,
+});
 
 export function metersToMillimeters(value) {
   const meters = numberOf(value);
@@ -38,6 +43,11 @@ export function migrateMillimeterInput(value) {
 export function formatMeters(value) {
   if (!isFiniteNumber(value)) return '—';
   return UI_METER_FORMATTER.format(normalizeZero(value, 0.0005));
+}
+
+export function formatDistanceMeters(value) {
+  if (!isFiniteNumber(value)) return '—';
+  return UI_DISTANCE_FORMATTER.format(normalizeZero(value, 0.0005));
 }
 
 export function sanitizeMeterInput(value) {

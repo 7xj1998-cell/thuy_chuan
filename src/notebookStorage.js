@@ -9,7 +9,7 @@ export const LIBRARY_KEYS = {
 export const CHECKPOINT_LIMIT = 12;
 const LIBRARY_FORMAT = 'so-thuy-chuan.library';
 const BACKUP_FORMAT = 'so-thuy-chuan.backup';
-const LIBRARY_SCHEMA_VERSION = 6;
+const LIBRARY_SCHEMA_VERSION = 7;
 const clone = (value) => structuredClone(value);
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const fail = (message) => { throw new Error(message); };
@@ -87,7 +87,7 @@ function importBook(raw) {
 }
 
 function validateLibrary(library) {
-  if (!isObject(library) || library.format !== LIBRARY_FORMAT || ![5, LIBRARY_SCHEMA_VERSION].includes(library.schemaVersion)
+  if (!isObject(library) || library.format !== LIBRARY_FORMAT || ![5, 6, LIBRARY_SCHEMA_VERSION].includes(library.schemaVersion)
     || !Array.isArray(library.books) || !library.books.length
     || !Array.isArray(library.trash) || !Array.isArray(library.checkpoints)
     || !Number.isInteger(library.revision) || library.revision < 0) fail('Thư viện sổ không đúng định dạng.');

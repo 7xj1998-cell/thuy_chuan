@@ -95,4 +95,29 @@ describe('báo cáo Excel kỹ thuật', () => {
     expect(rows.map((row) => row['Độ lệch tuyệt đối (mm)'])).toEqual([91, 2, 93]);
     expect(rows[0]['Chiều chênh lệch']).toBe('Lượt 2 thấp hơn Lượt 1');
   });
+
+  it('xuất hạng đo, hạn sai và nhận xét kiểm tra khép', async () => {
+    const initial = createBook();
+    const book = normalizeBook({
+      ...initial,
+      settings: { ...initial.settings, measurementClass: 'class-iv' },
+      benchmarks: [
+        { ...initial.benchmarks[0], name: 'DG1', elevation: '1,000' },
+        { id: 'b2', name: 'DG2', elevation: '1,100' },
+      ],
+      runs: [{
+        ...initial.runs[0],
+        startPoint: 'DG1',
+        mode: 'three',
+        stations: [{ ...createStation('DG2'), bsUpper: '1,500', bsMiddle: '1,200', bsLower: '0,900', fsUpper: '1,400', fsMiddle: '1,100', fsLower: '0,800' }],
+      }],
+    });
+    const solvedRuns = book.runs.map((run) => solveRun(run, book.benchmarks));
+    const { XLSX, workbook } = await createExcelWorkbook(book, solvedRuns);
+    const info = XLSX.utils.sheet_to_json(workbook.Sheets['Thông tin'])[0];
+    const closure = XLSX.utils.sheet_to_json(workbook.Sheets['Kiểm tra khép'])[0];
+    expect(info).toEqual(expect.objectContaining({ 'Hạng đo': 'Thủy chuẩn hạng IV', 'Hạn sai khép': '|fh| ≤ 20√L mm (L tính bằng km)' }));
+    expect(closure).toEqual(expect.objectContaining({ 'Chiều dài (m)': 120, 'Sai số khép fh (mm)': 0, 'Nhận xét': 'ĐẠT' }));
+    expect(closure['Hạn sai C√L (mm)']).toBeCloseTo(20 * Math.sqrt(0.12), 8);
+  });
 });

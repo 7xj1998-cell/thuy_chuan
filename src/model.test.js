@@ -5,7 +5,7 @@ import { POINT_TYPE_SIDE } from './pointNames';
 const benchmarks = [{ name: 'DG3', elevation: '2,222' }, { name: 'DG4', elevation: '1,641' }];
 const makeRun = (startPoint, points, deltas) => ({ ...createRun(1, startPoint), stations: points.map((point, i) => ({ ...createStation(point), bs: '1,000', fs: (1 - deltas[i] / 1000).toFixed(3).replace('.', ',') })) });
 
-describe('schema v6 và bộ giải tuyến', () => {
+describe('schema v7 và bộ giải tuyến', () => {
   it('giải tuyến DG3 → DC6 → DC7 → DG4', () => {
     const solved = solveRun(makeRun('DG3', ['DC6', 'DC7', 'DG4'], [-100, -200, -281]), benchmarks);
     expect(solved.points.map((p) => p.elevation)).toEqual([2222, 2122, 1922, 1641]);
@@ -38,7 +38,7 @@ describe('schema v6 và bộ giải tuyến', () => {
       benchmarks: [{ name: 'DG1', elevation: '1854' }],
       runs: [{ ...createRun(1, 'DG1'), stations: [{ ...createStation('TP1'), bs: '1330', fs: '1105' }] }],
     });
-    expect(migrated.schemaVersion).toBe(6);
+    expect(migrated.schemaVersion).toBe(7);
     expect(migrated.benchmarks[0].elevation).toBe('1,854');
     expect(migrated.runs[0].stations[0]).toEqual(expect.objectContaining({ bs: '1,330', fs: '1,105' }));
     expect(solveRun(migrated.runs[0], migrated.benchmarks).points.at(-1).elevation).toBe(2079);
@@ -49,7 +49,7 @@ describe('schema v6 và bộ giải tuyến', () => {
       benchmarks: [{ name: 'DG1', elevation: '1.980' }],
       runs: [{ ...createRun(1, 'DG1'), stations: [{ ...createStation('TP1'), bs: '2000.000', fs: '1.585', distance: '10.500' }] }],
     });
-    expect(migrated.schemaVersion).toBe(6);
+    expect(migrated.schemaVersion).toBe(7);
     expect(migrated.benchmarks[0].elevation).toBe('1,980');
     expect(migrated.runs[0].stations[0]).toEqual(expect.objectContaining({ bs: '2,000', fs: '1,585', distance: '10,500' }));
   });
@@ -59,7 +59,7 @@ describe('schema v6 và bộ giải tuyến', () => {
       benchmarks: [{ name: 'DG1', elevation: '1,000' }],
       runs: [{ ...createRun(1, 'DG1'), stations: [{ ...createStation('TP1'), pointType: undefined }] }],
     });
-    expect(migrated.schemaVersion).toBe(6);
+    expect(migrated.schemaVersion).toBe(7);
     expect(migrated.runs[0].stations[0].pointType).toBe('turning');
   });
   it('phục hồi cao độ schema v5 còn lưu ở dạng nhập thô', () => {
@@ -221,6 +221,15 @@ describe('schema v6 và bộ giải tuyến', () => {
     const twice = normalizeBook(once);
     expect(once.runs[0].startMode).toBe(START_MODE_KNOWN);
     expect(twice).toEqual(once);
+  });
+
+  it('không tự đoán hạng đo từ hệ số C cũ và giữ lựa chọn mới ổn định', () => {
+    const old = normalizeBook({ schemaVersion: 6, settings: { toleranceCoefficient: '10' }, runs: [createRun()] });
+    const selected = normalizeBook({ ...old, settings: { ...old.settings, measurementClass: 'class-iii' } });
+    expect(old.schemaVersion).toBe(7);
+    expect(old.settings.measurementClass).toBe('');
+    expect(selected.settings.measurementClass).toBe('class-iii');
+    expect(normalizeBook(selected)).toEqual(selected);
   });
 
   it('giữ chênh cao khi chưa có mốc khống chế và không tạo cao độ giả', () => {

@@ -13,6 +13,7 @@ import {
   POINT_TYPE_SIDE,
   POINT_TYPE_TURNING,
 } from './pointNames';
+import { normalizeLevelingClass } from './levelingStandards';
 
 export const STORAGE_KEYS = {
   books: 'so-thuy-chuan.books.v2',
@@ -21,7 +22,7 @@ export const STORAGE_KEYS = {
   exports: 'so-thuy-chuan.export-names.v2'
 };
 
-export const BOOK_SCHEMA_VERSION = 6;
+export const BOOK_SCHEMA_VERSION = 7;
 export const START_MODE_KNOWN = 'known';
 export const START_MODE_UNKNOWN = 'unknown';
 export const normalizeStartMode = (value) => value === START_MODE_UNKNOWN ? START_MODE_UNKNOWN : START_MODE_KNOWN;
@@ -29,7 +30,7 @@ export const normalizeStartMode = (value) => value === START_MODE_UNKNOWN ? STAR
 export const createBenchmark = (name = '', elevation = '') => ({ id: uid(), name: uppercaseName(name).trim(), elevation: String(elevation ?? '') });
 export const createStation = (point = '', pointType = POINT_TYPE_TURNING) => ({ id: uid(), point: uppercaseName(point).trim(), pointType: normalizePointType(pointType), bs: '', fs: '', distance: '', bsUpper: '', bsMiddle: '', bsLower: '', fsUpper: '', fsMiddle: '', fsLower: '' });
 export const createRun = (index = 1, startPoint = '', startMode = START_MODE_KNOWN) => ({ id: uid(), name: `Lượt ${index}`, roundNumber: index, startPoint: uppercaseName(startPoint).trim(), startMode: normalizeStartMode(startMode), mode: 'single', stations: [createStation()] });
-export const createBook = () => ({ schemaVersion: BOOK_SCHEMA_VERSION, id: uid(), name: `Sổ ${new Date().toLocaleDateString('vi-VN')}`, benchmarks: [createBenchmark()], runs: [createRun()], settings: { toleranceCoefficient: '20' }, createdAt: Date.now(), updatedAt: Date.now() });
+export const createBook = () => ({ schemaVersion: BOOK_SCHEMA_VERSION, id: uid(), name: `Sổ ${new Date().toLocaleDateString('vi-VN')}`, benchmarks: [createBenchmark()], runs: [createRun()], settings: { measurementClass: '', toleranceCoefficient: '20' }, createdAt: Date.now(), updatedAt: Date.now() });
 export const nextRunNumber = (runs = []) => Math.max(0, ...runs.map((run) => {
   const value = Number(run.roundNumber);
   return Number.isInteger(value) && value > 0 ? value : 0;
@@ -94,6 +95,15 @@ function migrateStoredBook(raw = {}) {
       runs: (source.runs || []).map((run) => ({ ...run, startMode: START_MODE_KNOWN })),
     };
   }
+  if (Number(source.schemaVersion) < 7) {
+    source = {
+      ...source,
+      schemaVersion: 7,
+      // Hạng đo phải do người phụ trách chủ động chọn. Không suy đoán hạng từ
+      // hệ số C tự nhập ở các phiên bản trước.
+      settings: { ...(source.settings || {}), measurementClass: '' },
+    };
+  }
   return source;
 }
 
@@ -110,7 +120,7 @@ export function normalizeBook(raw = {}) {
       const storedRoundNumber = Number(run.roundNumber);
       return { ...createRun(index + 1), ...run, id: run.id || uid(), roundNumber: Number.isInteger(storedRoundNumber) && storedRoundNumber > 0 ? storedRoundNumber : index + 1, startPoint: uppercaseName(run.startPoint).trim(), startMode: normalizeStartMode(run.startMode), mode: run.mode === 'three' ? 'three' : 'single', stations: (run.stations || []).map((s) => ({ ...createStation(), ...s, id: s.id || uid(), point: uppercaseName(s.point).trim(), pointType: normalizePointType(s.pointType) })) };
     }),
-    settings: { ...base.settings, ...(source.settings || {}) }, createdAt: source.createdAt || Date.now(), updatedAt: source.updatedAt || Date.now()
+    settings: { ...base.settings, ...(source.settings || {}), measurementClass: normalizeLevelingClass(source.settings?.measurementClass) }, createdAt: source.createdAt || Date.now(), updatedAt: source.updatedAt || Date.now()
   };
   if (!book.runs.length) book.runs = [createRun(1, '')];
   book.runs.forEach((run) => { if (!run.stations.length) run.stations = [createStation()]; });

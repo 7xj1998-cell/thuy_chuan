@@ -84,6 +84,9 @@ describe('cấu trúc giao diện mobile', () => {
     }));
     const html = renderToStaticMarkup(<App />);
     expect(html).toContain('readings is-three');
+    expect(html).toContain('three-reading-matrix');
+    expect(html).toContain('Mia sau');
+    expect(html).toContain('Mia trước');
     expect(html).toContain('value="1,234"');
     expect(html).toContain('value="0,932"');
     expect(html.match(/data-confirm-clear="true"/g)).toHaveLength(6);

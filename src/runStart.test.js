@@ -79,7 +79,7 @@ describe('chọn mốc xuất phát theo từng lượt', () => {
         { ...createRun(2, 'DG2'), id: 'run-2' },
       ],
     });
-    expect(restored.schemaVersion).toBe(6);
+    expect(restored.schemaVersion).toBe(7);
     expect(restored.runs.map((run) => run.startPoint)).toEqual(['DG1', 'DG2']);
     expect(restored.runs.every((run) => run.startMode === START_MODE_KNOWN)).toBe(true);
   });
