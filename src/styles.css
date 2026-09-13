@@ -3658,3 +3658,24 @@ body.keyboard-open .app-v27 input { scroll-margin-bottom: 112px; }
   .app-v28 .readings.is-three .threegrid { gap: 6px; }
   .app-v28 .readings.is-three .threegrid input { height: 60px; min-height: 60px; padding-inline: 3px; font-size: 20px; }
 }
+/* Compact report navigation and native disclosure rows. */
+[hidden] { display: none !important; }
+.app-v28 .workspace-header { grid-template-columns: minmax(0, 1fr) auto; }
+.app-v28 .workspace-header h1 { margin: 0; font-size: 20px; line-height: 1.4; }
+.app-v28 .report-switch { display: flex; gap: 4px; padding: 4px; background: #edf1f3; border-radius: 12px; }
+.app-v28 .report-switch button { flex: 1; min-height: 48px; padding: 8px; border: 0; border-radius: 9px; color: #334155; background: transparent; font: inherit; font-size: 13px; font-weight: 600; }
+.app-v28 .report-switch button[aria-pressed="true"] { background: #fff; color: #0f172a; box-shadow: 0 1px 3px #0f172a15; }
+.app-v28 .report-count { margin: 12px 0; color: #475569; font-size: 13px; }
+.app-v28 .report-disclosure { padding: 12px 14px; }
+.app-v28 .report-disclosure > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; cursor: pointer; color: #0f172a; }
+.app-v28 .report-disclosure > summary::after { content: '+'; font-size: 20px; }
+.app-v28 .report-disclosure[open] > summary::after { content: '−'; }
+.app-v28 .report-disclosure > summary span { display: grid; gap: 4px; min-width: 0; }
+.app-v28 .report-disclosure > summary small { font-size: 12px; color: #475569; font-weight: 400; }
+.app-v28 .report-disclosure[open] > summary { margin-bottom: 12px; border-bottom: 1px solid #dbe1e6; padding-bottom: 12px; }
+.app-v28 .report-status { font-size: 12px; margin-left: auto; font-weight: 600; }
+.app-v28 .app-version { padding: 24px 12px; color: #475569; font-size: 13px; text-align: center; }
+.app-v28 .report-filters { display: flex; gap: 8px; margin-bottom: 12px; }
+.app-v28 .report-filters input { flex: 1; width: 0; min-width: 0; min-height: 48px; font-size: 16px; padding: 8px 12px; }
+.app-v28 .report-filters button { min-height: 48px; padding: 8px 12px; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 10px; background: #fff; }
+.app-v28 .report-filters button[aria-pressed="true"] { background: #e0eee8; border-color: #648b7a; }

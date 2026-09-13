@@ -1,4 +1,5 @@
-import { useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
+import { APP_VERSION } from './appVersion';
 import {
   BarChart2,
   BookOpen,
@@ -357,6 +358,14 @@ export default function App() {
   const fileRef = useRef(null);
   const measureRef = useRef(null);
   const finishLock = useRef(false);
+  const scrollPositions = useRef(new Map());
+  const scrollKey = `${book.id}:${tab}:${tab === 'route' ? runId : ''}`;
+  useLayoutEffect(() => {
+    window.scrollTo({ top: scrollPositions.current.get(scrollKey) || 0, left: 0, behavior: 'instant' });
+    const remember = () => scrollPositions.current.set(scrollKey, window.scrollY);
+    window.addEventListener('scroll', remember, { passive: true });
+    return () => window.removeEventListener('scroll', remember);
+  }, [scrollKey]);
 
   const activeRunIndex = Math.max(0, book.runs.findIndex((run) => run.id === runId));
   const activeRun = book.runs[activeRunIndex];
@@ -437,10 +446,11 @@ export default function App() {
     dispatchPanel({ type: 'open-origin', runId: id });
   }
   function changeTab(nextTab) {
+    if (nextTab === tab) return;
+    scrollPositions.current.set(scrollKey, window.scrollY);
     dispatchPanel({ type: 'reset' });
     setDialog(null);
     setTab(nextTab);
-    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }
   function addRun(mode = 'single') {
     const next = createUnstartedRun(book, mode);
@@ -667,8 +677,7 @@ export default function App() {
   return (
     <div className="app-v3 app-v25 app-v27 app-v28" data-outdoor={outdoor ? 'true' : 'false'}>
       <header className="workspace-header">
-        <div className="brand-mark" aria-hidden="true"><img src="/level-mark.svg" alt="" /></div>
-        <div className="brand-copy"><div className="eyebrow">THỦY CHUẨN <span className="version-badge">2.8.2</span></div><h1>{book.name}</h1></div>
+        <div className="brand-copy"><h1>{book.name}</h1></div>
         <div className="workspace-status"><button className="iconbtn" onClick={renameBook} aria-label="Đổi tên sổ"><PencilLine /></button></div>
       </header>
       <main id="main-content" data-tab={tab}>
@@ -678,8 +687,8 @@ export default function App() {
         {tab === 'route' && <RunPicker runs={book.runs} solvedRuns={solvedRuns} runId={activeRun.id} onSelect={selectRun} onAdd={() => addRun()} />}
         {tab === 'measure' && <div ref={measureRef}><Measure book={book} runs={book.runs} availablePoints={availablePoints} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} updateStation={updateStation} finish={() => finishStation()} changeMode={changeMode} checksRequested={checksRequested} saveState={library.saveState} onSelectRun={selectRun} onOpenSettings={() => openRunSettings(activeRun.id)} onUndo={requestUndo} undoEntry={undoEntry} onRequestClear={requestClearReading} onStart={(name, startMode) => setRunOrigin(activeRun, name, { confirm: false, initial: true, startMode })} onManageBenchmarks={goToBenchmarks} /></div>}
         {tab === 'route' && <><ElevationProfile solved={activeSolved} /><Route run={activeRun} solved={activeSolved} addStation={addStation} edit={(index) => { setStationIndex(index); changeTab('measure'); }} remove={deleteStation} onOpenSettings={() => openRunSettings(activeRun.id)} /></>}
-        {tab === 'result' && <Results book={book} solvedRuns={solvedRuns} />}
-        {tab === 'files' && <Files book={book} books={books} library={library} updateBook={updateBook} newBook={newBook} save={save} saveAs={saveAs} exportExcel={() => exportReport('xlsx')} exportPdf={() => exportReport('pdf')} backupAll={backupAll} exporting={exporting} fileRef={fileRef} importFile={importFile} availablePoints={availablePoints} setDialog={setDialog} outdoor={outdoor} setOutdoor={setOutdoor} />}
+        <div hidden={tab !== 'result'}><Results key={book.id} book={book} solvedRuns={solvedRuns} /></div>
+        <div hidden={tab !== 'files'}><Files key={book.id} book={book} books={books} library={library} updateBook={updateBook} newBook={newBook} save={save} saveAs={saveAs} exportExcel={() => exportReport('xlsx')} exportPdf={() => exportReport('pdf')} backupAll={backupAll} exporting={exporting} fileRef={fileRef} importFile={importFile} availablePoints={availablePoints} setDialog={setDialog} outdoor={outdoor} setOutdoor={setOutdoor} /></div>
       </main>
       {tab === 'measure' && activeRun.startPoint && <CaptureDock book={book} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} finish={() => finishStation()} />}
       <nav className="bottom" aria-label="Điều hướng chính">
@@ -1000,17 +1009,26 @@ function comparisonDirection(pair) {
 const formatLimitMillimeters = (value) => Number.isFinite(value) ? new Intl.NumberFormat('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value) : '—';
 
 function Results({ book, solvedRuns }) {
+  const [view, setView] = useState('closure');
+  const [pointQuery, setPointQuery] = useState('');
+  const [largestFirst, setLargestFirst] = useState(false);
   const comparisons = compareRuns(solvedRuns, book.benchmarks);
+  const visibleComparisons = comparisons.filter((group) => group.name.toLocaleLowerCase('vi').includes(pointQuery.trim().toLocaleLowerCase('vi')));
+  if (largestFirst) visibleComparisons.sort((a, b) => b.spread - a.spread);
   const coefficient = toleranceCoefficientForClass(book.settings.measurementClass);
   const network = adjustLevelingNetwork(solvedRuns, book.benchmarks, coefficient);
   return (
     <section className="result-shell">
       <h2 className="page-title">Kết quả</h2>
-      <div className="result-area" data-result-area="closure">
+      <nav className="report-switch" aria-label="Nội dung kết quả">
+        {[['closure', 'Kiểm tra lượt'], ['comparison', 'Điểm chung'], ['adjustment', 'Bình sai']].map(([id, label]) => <button key={id} aria-pressed={view === id} onClick={() => setView(id)}>{label}</button>)}
+      </nav>
+      <p className="report-count">{solvedRuns.length} lượt · {comparisons.length} điểm chung</p>
+      <div hidden={view !== 'closure'} className="result-area" data-result-area="closure">
         <div className="result-area-heading"><h3>Kiểm tra khép</h3></div>
         {solvedRuns.map((solved) => (
-          <div className="card result-card" key={solved.runId}>
-            <div className="card-heading"><span>Lượt đo</span><h3>{solved.runName}</h3></div>
+          <details className="card result-card report-disclosure" key={solved.runId}>
+            <summary><span><b>{solved.runName}</b><small>{solved.turningCount} trạm · {solved.totalDistance === null ? 'Thiếu chiều dài' : `${formatDistanceMeters(solved.totalDistance)} m`}</small></span><span className="report-status">{({ passed: 'Đạt', failed: 'Không đạt', incomplete: 'Chưa khép', 'missing-distance': 'Thiếu chiều dài', unselected: 'Chưa chọn hạng' })[evaluateRunStandard(solved, book.settings.measurementClass).status]}</span></summary>
             <div className="metric">
               <div><span>ĐC / TP</span><b className="numeric">{solved.turningCount} / {solved.sideCount}</b></div>
               <div><span>Chiều dài</span><b className="numeric">{solved.totalDistance === null ? '—' : `${formatDistanceMeters(solved.totalDistance)} m`}</b></div>
@@ -1020,15 +1038,16 @@ function Results({ book, solvedRuns }) {
               <div className="check benchmark-summary" key={`${solved.runId}-${check.index}`}><b>{check.name}</b><span className="numeric">Chuẩn {formatElevation(check.known)} m · Đo {formatElevation(check.measured)} m · Lệch {formatSignedMillimeters(check.difference)} mm</span></div>
             )) : <p className="warning">Lượt này chưa chứa mốc chuẩn.</p>}
             <RunStandardAssessment assessment={evaluateRunStandard(solved, book.settings.measurementClass)} />
-          </div>
+          </details>
         ))}
       </div>
-      <div className="result-area" data-result-area="comparison">
+      <div hidden={view !== 'comparison'} className="result-area" data-result-area="comparison">
         <div className="result-area-heading"><h3>So sánh điểm chung</h3></div>
+        <div className="report-filters"><input type="search" aria-label="Tìm điểm chung" placeholder="Tìm DC, DG, GPS…" value={pointQuery} onChange={(event) => setPointQuery(event.target.value)} /><button aria-pressed={largestFirst} onClick={() => setLargestFirst((previous) => !previous)}>Lệch lớn trước</button></div>
         <div className="card">
-          {comparisons.length ? comparisons.map((group) => (
-            <div className="compare" key={group.name}>
-              <div className="compareHead"><b>{group.name}</b><span><small>Biên độ (Max−Min)</small><strong className="numeric">{formatMillimeters(group.spread)} mm</strong></span></div>
+          {visibleComparisons.length ? visibleComparisons.map((group) => (
+            <details className="compare report-disclosure" key={group.name}>
+              <summary><span><b>{group.name}</b><small>{group.values.length} lượt · {group.pairs.length} cặp</small></span><span><small>Lệch lớn nhất</small><strong className="numeric">{formatMillimeters(group.spread)} mm</strong></span></summary>
               {group.values.map((value) => <div className="compareLine" key={value.runId}><span>{value.runName}</span><b className="numeric">{formatElevation(value.elevation)} m</b></div>)}
               <details className="pair-comparisons" open={group.pairs.length <= 3}>
                 <summary>Chênh lệch giữa các lượt · {group.pairs.length}</summary>
@@ -1037,11 +1056,11 @@ function Results({ book, solvedRuns }) {
                   <strong className="numeric">{formatMillimeters(pair.absoluteDifference)} mm <small>({formatSignedMillimeters(pair.difference)} mm)</small></strong>
                 </div>)}
               </details>
-            </div>
-          )) : <p className="empty">Chưa có điểm chuyền cùng tên ở ít nhất 2 lượt.</p>}
+            </details>
+          )) : <p className="empty">{pointQuery ? 'Không tìm thấy điểm chung phù hợp.' : 'Chưa có điểm chuyền cùng tên ở ít nhất 2 lượt.'}</p>}
         </div>
       </div>
-      <div className="result-area" data-result-area="adjustment">
+      <div hidden={view !== 'adjustment'} className="result-area" data-result-area="adjustment">
         <NetworkAdjustment network={network} />
       </div>
     </section>
@@ -1173,6 +1192,7 @@ function Files({ book, books, library, updateBook, newBook, save, saveAs, export
         <p className="note">Các ngưỡng do người đo đặt để phát hiện nhập nhầm; không phải tiêu chuẩn nghiệm thu. Nhập 0 để tắt từng nhắc.</p>
         {[[ 'staffLimit', 'Số đọc mia lớn hơn', 'm' ], [ 'deltaLimit', '|Δh| lớn hơn', 'm' ], [ 'middleErrorLimit', 'Sai số chỉ giữa lớn hơn', 'mm' ]].map(([key, label, unit]) => <label className="setting-row" key={key}><span>{label} <small>({unit})</small></span>{key === 'middleErrorLimit' ? <input className="numeric" inputMode="decimal" aria-label={label + ' ' + unit} value={book.settings[key] ?? FIELD_DEFAULTS[key]} onChange={(event) => updateBook((previous) => ({ ...previous, settings: { ...previous.settings, [key]: event.target.value } }))} /> : <MeterInput aria-label={label + ' ' + unit} value={book.settings[key] ?? FIELD_DEFAULTS[key]} onValueChange={(value) => updateBook((previous) => ({ ...previous, settings: { ...previous.settings, [key]: value } }))} />}</label>)}
       </details>
+      <footer className="app-version">Sổ thủy chuẩn · Phiên bản {APP_VERSION}</footer>
     </section>
   );
 }

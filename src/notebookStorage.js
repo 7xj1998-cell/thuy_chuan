@@ -1,4 +1,5 @@
 import { uid } from './calc';
+import { APP_VERSION } from './appVersion';
 import { BOOK_SCHEMA_VERSION, createBook, migrateLegacyBook, normalizeBook, STORAGE_KEYS } from './model';
 
 export const LIBRARY_KEYS = {
@@ -439,7 +440,7 @@ export function createNotebookLibrary(storage = defaultStorage()) {
     },
     exportBackup() {
       try {
-        return JSON.stringify({ format: BACKUP_FORMAT, schemaVersion: LIBRARY_SCHEMA_VERSION, appVersion: '2.8.2', exportedAt: new Date().toISOString(),
+        return JSON.stringify({ format: BACKUP_FORMAT, schemaVersion: LIBRARY_SCHEMA_VERSION, appVersion: APP_VERSION, exportedAt: new Date().toISOString(),
           library, ...(loaded.unreadableSources.length ? { unreadableSources: loaded.unreadableSources } : {}) }, null, 2);
       } catch (cause) { report(cause); return ''; }
     },

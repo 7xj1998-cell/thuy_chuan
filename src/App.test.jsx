@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it } from 'vitest';
 import App from './App';
 import { QualityCard } from './FieldUI';
+import metadata from '../package.json';
 
 describe('cấu trúc giao diện mobile', () => {
   beforeEach(() => {
@@ -35,6 +36,14 @@ describe('cấu trúc giao diện mobile', () => {
     expect(html).toContain('placeholder="Nhập khoảng cách (m)..."');
     expect(html).toContain('Chênh cao tích lũy');
     expect(html).not.toContain('Cao máy · HI');
+  });
+
+  it('hiển thị phiên bản build ở cuối sổ và tệp, không ở tiêu đề', () => {
+    const html = renderToStaticMarkup(<App />);
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
+    expect(header).not.toContain('version-badge');
+    expect(header).not.toContain('<img');
+    expect(html).toContain(`Sổ thủy chuẩn · Phiên bản ${metadata.version}`);
   });
 
   it('bỏ lựa chọn Tia phụ khỏi luồng mới, giữ combobox và ghost name theo lượt', () => {

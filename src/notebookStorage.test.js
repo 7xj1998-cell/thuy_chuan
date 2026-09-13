@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import metadata from '../package.json';
 import { createBook, createStation, STORAGE_KEYS } from './model';
 import { CHECKPOINT_LIMIT, createNotebookLibrary, LIBRARY_KEYS } from './notebookStorage';
 
@@ -304,6 +305,7 @@ describe('thư viện tự lưu và nhập tệp an toàn', () => {
     source.updateBook({ name: 'C' });
     source.deleteBook(source.getSnapshot().book.id);
     const backup = source.exportBackup();
+    expect(JSON.parse(backup).appVersion).toBe(metadata.version);
     const targetStorage = memoryStorage();
     const target = createNotebookLibrary(targetStorage);
     target.initialize();
