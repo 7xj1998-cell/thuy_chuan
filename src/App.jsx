@@ -25,8 +25,10 @@ import {
   Trash2,
   TriangleAlert,
   Undo2,
+  Redo2,
   Upload,
-} from 'lucide-react';
+} from './icons';
+import { IconChooser } from './IconChooser';
 import {
   adjustLevelingNetwork,
   compareRuns,
@@ -352,6 +354,7 @@ export default function App() {
   const [checksRequested, setChecksRequested] = useState(false);
   const [dialog, setDialog] = useState(null);
   const [pendingImport, setPendingImport] = useState(null);
+  const [iconChooserOpen, setIconChooserOpen] = useState(false);
   const [outdoor, setOutdoor] = useState(() => {
     try { return localStorage.getItem(OUTDOOR_STORAGE_KEY) === 'true'; } catch { return false; }
   });
@@ -695,7 +698,8 @@ export default function App() {
         <div className="workspace-status"><button className="iconbtn" onClick={renameBook} aria-label="Đổi tên sổ"><PencilLine /></button></div>
       </header>
       <main id="main-content" data-tab={tab}>
-        {tab === 'measure' && <div className="history-controls"><button disabled={!undoEntry} onClick={requestUndo} aria-label={undoEntry ? `Hoàn tác: ${undoEntry.reason}` : 'Chưa có thay đổi để hoàn tác'}><Undo2 aria-hidden="true" />Hoàn tác</button><button disabled={!redoEntry} onClick={requestRedo} aria-label="Làm lại thay đổi">↷ Làm lại</button></div>}
+        {tab === 'files' && <div className="icon-picker-entry"><button type="button" onClick={() => setIconChooserOpen(true)}><Settings2 />Giao diện · chọn 1 trong 5 bộ icon</button></div>}
+        {tab === 'measure' && <div className="history-controls"><button disabled={!undoEntry} onClick={requestUndo} aria-label={undoEntry ? `Hoàn tác: ${undoEntry.reason}` : 'Chưa có thay đổi để hoàn tác'}><Undo2 aria-hidden="true" />Hoàn tác</button><button disabled={!redoEntry} onClick={requestRedo} aria-label="Làm lại thay đổi"><Redo2 aria-hidden="true" />Làm lại</button></div>}
         {tab !== 'measure' && <div className="field-toolbar compact-toolbar"><span className="save-indicator" data-state={library.saveState}><CloudCheck size={14} />{saveLabel}</span></div>}
         {library.storageError && <div className="storage-banner" role="alert"><TriangleAlert /><div><b>Cần bảo vệ dữ liệu</b><p>{library.storageError}</p><button onClick={backupAll} disabled={Boolean(exporting)}>Tải sao lưu ngay</button><button onClick={save}>Thử lưu lại</button></div></div>}
         {library.saveState === 'recovered' && !library.storageError && <p className="storage-banner" role="status">Đã khôi phục thư viện từ bản lưu an toàn gần nhất.</p>}
@@ -705,6 +709,7 @@ export default function App() {
         <div hidden={tab !== 'result'}><Results key={book.id} book={book} solvedRuns={solvedRuns} /></div>
         <div hidden={tab !== 'files'}><Files key={book.id} book={book} books={books} library={library} updateBook={updateBook} newBook={newBook} save={save} saveAs={saveAs} exportExcel={() => exportReport('xlsx')} exportPdf={() => exportReport('pdf')} backupAll={backupAll} exporting={exporting} fileRef={fileRef} importFile={importFile} availablePoints={availablePoints} setDialog={setDialog} outdoor={outdoor} setOutdoor={setOutdoor} /></div>
       </main>
+      {iconChooserOpen && <SheetDialog title="Chọn bộ icon" description="Xem thử 5 phong cách cho toàn bộ ứng dụng." className="icon-picker-sheet" onClose={() => setIconChooserOpen(false)}><IconChooser /></SheetDialog>}
       {tab === 'measure' && activeRun.startPoint && <CaptureDock book={book} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} finish={() => finishStation()} />}
       <nav className="bottom" aria-label="Điều hướng chính">
         {NAV_ITEMS.map(({ id, label, Icon }) => <button key={id} className={tab === id ? 'active' : ''} aria-current={tab === id ? 'page' : undefined} onClick={() => changeTab(id)}><span className="nav-icon" aria-hidden="true"><Icon /></span><span className="nav-label">{label}</span></button>)}

@@ -2,6 +2,20 @@
 
 Ứng dụng ghi, tính và bình sai cao độ cho nhiều lượt đo độc lập, dùng chung mã nguồn cho web, iPhone và Android.
 
+## Phiên bản 2.10.0
+
+- Chốt bộ số 4 — Khối đặc (Heroicons Solid) làm mặc định cho bản phát hành; lựa chọn dùng thử cũ được đặt lại để mọi thiết bị nhận đúng bộ đã chọn.
+
+- Thêm 5 bộ icon để dùng thử: Nét kỹ thuật, Nét bo tròn, Hai sắc độ, Khối đặc và Nét gọn. Mỗi bộ bao phủ đủ 29 chức năng; nút Làm lại dùng SVG cùng bộ với Hoàn tác.
+- Mở bảng so sánh tại `/?icons=compare`, hoặc vào **Sổ & tệp → Giao diện · chọn 1 trong 5 bộ icon**. Lựa chọn đổi toàn bộ icon trong ứng dụng và được lưu riêng trên thiết bị.
+- Mặt cắt cao độ hiện tên đầy đủ và cao độ của mọi điểm, kể cả khi tuyến có hơn 7 điểm. Tuyến dài cuộn ngang; chạm tên điểm hoặc dùng nút trước/sau để xem chi tiết.
+- Giữ cả các lần xuất hiện của cùng một mốc trên tuyến khép. Điểm thiếu cao độ có nhãn riêng, đường biểu diễn không nối qua khoảng thiếu số liệu. Trục ngang biểu diễn thứ tự điểm, không phải khoảng cách.
+- Bộ số 4 áp dụng cho icon giao diện; giữ biểu tượng nhận diện cài đặt hiện có của ứng dụng.
+
+Các bộ icon được nhập từ [React Icons](https://react-icons.github.io/react-icons/), gồm Tabler, Phosphor, Heroicons và Remix. Danh sách ánh xạ nằm ở `scripts/create-icon-catalog.py`; chạy script này sau khi sửa ánh xạ để cập nhật `src/iconCatalog.js`.
+
+Kiểm tra giao diện với server ở cổng 5173: `python -X utf8 scripts/verify-icons-profile.py`. Script dùng trình duyệt Edge headless và dữ liệu mẫu trong phiên trình duyệt riêng.
+
 ## Phiên bản 2.8.2
 
 - Thiết kế lại chế độ đo 3 chỉ thành hai thẻ Mia sau/Mia trước toàn chiều rộng; sáu số đọc hiển thị đầy đủ, có thứ tự Trên–Giữa–Dưới rõ ràng và tự xếp dọc trên màn hình hẹp.
