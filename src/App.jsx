@@ -377,7 +377,8 @@ export default function App() {
   const availablePoints = useAvailablePoints(book);
   const settingsRun = book.runs.find((run) => run.id === panels.settingsRunId) || null;
   const originPickerRun = book.runs.find((run) => run.id === panels.originPickerRunId) || null;
-  const undoEntry = library.checkpoints.find((entry) => entry.book.id === book.id && entry.kind !== 'undo-backup') || null;
+  const undoEntry = library.checkpoints.find((entry) => entry.book.id === book.id && !['undo-backup', 'redo'].includes(entry.kind)) || null;
+  const redoEntry = library.checkpoints.find((entry) => entry.book.id === book.id && entry.kind === 'redo');
 
   useEffect(() => {
     setRunId(book.runs[0].id);
@@ -433,7 +434,7 @@ export default function App() {
         ? { ...station, [field]: field === 'point' ? uppercaseName(value).trimStart() : value, committedAt: undefined }
         : station),
     } : item),
-  }));
+  }), { undoGroup: `station:${run.id}:${stationId}`, undoLabel: 'Sửa số liệu trạm' });
   function selectRun(id) {
     dispatchPanel({ type: 'reset' }); setRunId(id); setStationIndex(0);
   }
@@ -547,7 +548,7 @@ export default function App() {
     finishLock.current = true;
     const saved = updateBook((previous) => ({
       ...previous, runs: previous.runs.map((run) => run.id === activeRun.id ? { ...run, stations: result.stations } : run),
-    }), { checkpoint: 'Hoàn tất trạm' });
+    }), { checkpoint: 'Hoàn tất trạm', undoGroup: `station:${activeRun.id}:${activeRun.stations[stationIndex].id}` });
     if (!saved) { finishLock.current = false; pulse([15, 45, 15]); return; }
     pulse(15);
     setStationIndex(result.nextIndex);
@@ -561,11 +562,12 @@ export default function App() {
   function deleteStation(index) {
     const result = removeStation(activeRun, index);
     if (!result.removed) { setToast({ text: 'Lượt đo cần ít nhất một trạm.' }); return; }
-    const before = structuredClone(activeRun.stations);
     if (!updateBook((previous) => ({ ...previous, runs: previous.runs.map((run) => run.id === activeRun.id ? { ...run, stations: result.stations } : run) }), { checkpoint: 'Xóa trạm' })) return;
+    const deletionId = library.getSnapshot?.()?.checkpoints?.[0]?.id;
     setStationIndex(Math.min(stationIndex, result.stations.length - 1));
     setToast({ text: 'Đã xóa trạm ' + (index + 1), action: { label: 'Hoàn tác', fn: () => {
-      updateRun(activeRun.id, { stations: before }); setStationIndex(index);
+      if (deletionId && library.undoCheckpoint(deletionId)) setStationIndex(index);
+      else setToast({ text: 'Đã có thay đổi mới. Dùng nút Hoàn tác ở tab Đo để xem thao tác gần nhất.' });
     } } });
   }
   function save() {
@@ -588,6 +590,18 @@ export default function App() {
         setDialog(null);
       },
     });
+  }
+  function requestRedo() {
+    if (!redoEntry) return;
+    setDialog({ title: 'Làm lại thay đổi?', description: redoEntry.actionReason || 'Khôi phục thay đổi vừa hoàn tác.', confirmLabel: 'Làm lại', onConfirm: () => {
+      if (library.redoCheckpoint(redoEntry.id)) {
+        const restoredRun = redoEntry.book.runs.find((run) => run.id === activeRun.id) || redoEntry.book.runs[0];
+        setRunId(restoredRun.id);
+        setStationIndex(Math.min(stationIndex, restoredRun.stations.length - 1));
+        setToast({ text: 'Đã làm lại thay đổi' });
+      }
+      setDialog(null);
+    } });
   }
   function requestClearReading(label, clearValue, field) {
     setDialog({
@@ -681,6 +695,7 @@ export default function App() {
         <div className="workspace-status"><button className="iconbtn" onClick={renameBook} aria-label="Đổi tên sổ"><PencilLine /></button></div>
       </header>
       <main id="main-content" data-tab={tab}>
+        {tab === 'measure' && <div className="history-controls"><button disabled={!undoEntry} onClick={requestUndo} aria-label={undoEntry ? `Hoàn tác: ${undoEntry.reason}` : 'Chưa có thay đổi để hoàn tác'}><Undo2 aria-hidden="true" />Hoàn tác</button><button disabled={!redoEntry} onClick={requestRedo} aria-label="Làm lại thay đổi">↷ Làm lại</button></div>}
         {tab !== 'measure' && <div className="field-toolbar compact-toolbar"><span className="save-indicator" data-state={library.saveState}><CloudCheck size={14} />{saveLabel}</span></div>}
         {library.storageError && <div className="storage-banner" role="alert"><TriangleAlert /><div><b>Cần bảo vệ dữ liệu</b><p>{library.storageError}</p><button onClick={backupAll} disabled={Boolean(exporting)}>Tải sao lưu ngay</button><button onClick={save}>Thử lưu lại</button></div></div>}
         {library.saveState === 'recovered' && !library.storageError && <p className="storage-banner" role="status">Đã khôi phục thư viện từ bản lưu an toàn gần nhất.</p>}
@@ -825,7 +840,6 @@ function Measure({ book, runs, availablePoints, run, solved, index, setIndex, up
         <label><span className="sr-only">Chọn lượt đo</span><select value={run.id} onChange={(event) => onSelectRun(event.target.value)}>{runs.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <span className={`measure-run-status ${solved.solved ? 'is-ready' : 'is-open'}`}>{solved.solved ? 'Đã có cao độ' : run.startMode === START_MODE_UNKNOWN ? 'Chưa khép mốc' : 'Đang đo'}</span>
         <span className="measure-save-state">{saveState === 'error' ? 'Lỗi lưu' : saveState === 'unsaved' ? 'Đang lưu' : 'Đã lưu'}</span>
-        <button type="button" className="undo-btn" disabled={!undoEntry} onClick={onUndo} aria-label={undoEntry ? `Hoàn tác: ${undoEntry.reason}` : 'Chưa có thay đổi để hoàn tác'} title={undoEntry ? `Hoàn tác: ${undoEntry.reason}` : 'Chưa có thay đổi để hoàn tác'}><Undo2 /><span>Hoàn tác</span></button>
         <button type="button" className="settings-btn" aria-label={`Cài đặt ${run.name}`} onClick={onOpenSettings}><Settings2 /></button>
       </div>
       {!run.startPoint && <StartSession key={run.id} book={book} run={run} onStart={onStart} onManageBenchmarks={onManageBenchmarks} />}

@@ -3679,3 +3679,7 @@ body.keyboard-open .app-v27 input { scroll-margin-bottom: 112px; }
 .app-v28 .report-filters input { flex: 1; width: 0; min-width: 0; min-height: 48px; font-size: 16px; padding: 8px 12px; }
 .app-v28 .report-filters button { min-height: 48px; padding: 8px 12px; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 10px; background: #fff; }
 .app-v28 .report-filters button[aria-pressed="true"] { background: #e0eee8; border-color: #648b7a; }
+.app-v28 .history-controls { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 8px; }
+.app-v28 .history-controls button { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 8px 12px; background: #fff; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 10px; }
+.app-v28 .history-controls button:disabled { opacity: .45; }
+.app-v28 .history-controls svg { width: 18px; height: 18px; }

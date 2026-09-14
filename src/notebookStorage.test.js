@@ -274,9 +274,57 @@ describe('thư viện tự lưu và nhập tệp an toàn', () => {
     expect(store.undoCheckpoint(entry.id)).toBe(true);
     expect(store.getSnapshot().book.id).toBe(currentId);
     expect(store.getSnapshot().book.name).toBe('Trước khi lưu trạm');
-    expect(store.getSnapshot().checkpoints[0]).toMatchObject({ reason: 'Bản trước khi hoàn tác', kind: 'undo-backup' });
+    expect(store.getSnapshot().checkpoints[0]).toMatchObject({ reason: 'Bản trước khi hoàn tác', kind: 'redo' });
     expect(store.getSnapshot().checkpoints[0].book.name).toBe('Sau khi lưu trạm');
     expect(createNotebookLibrary(storage).getSnapshot().book.name).toBe('Trước khi lưu trạm');
+  });
+
+  it('gom chỉnh sửa và lưu trạm; hoàn tác trả số gốc, làm lại trả số đã sửa', () => {
+    const storage = memoryStorage();
+    const store = createNotebookLibrary(storage);
+    store.initialize();
+    const change = (value, options = {}) => store.updateBook((book) => ({ ...book, runs: book.runs.map((run, index) => index ? run : { ...run, stations: run.stations.map((station, i) => i ? station : { ...station, bs: value }) }) }), options);
+    change('1.234');
+    change('2', { undoGroup: 'station:a' });
+    change('2.345', { undoGroup: 'station:a' });
+    store.updateBook((book) => ({ ...book, runs: book.runs.map((run) => ({ ...run, stations: run.stations.map((station) => ({ ...station, committedAt: 123 })) })) }), { undoGroup: 'station:a', checkpoint: 'Hoàn tất trạm' });
+    const entry = store.getSnapshot().checkpoints[0];
+    expect(store.undoCheckpoint(entry.id)).toBe(true);
+    expect(store.getSnapshot().book.runs[0].stations[0].bs).toBe('1.234');
+    const reloaded = createNotebookLibrary(storage);
+    expect(reloaded.redoCheckpoint(reloaded.getSnapshot().checkpoints[0].id)).toBe(true);
+    expect(reloaded.getSnapshot().book.runs[0].stations[0].bs).toBe('2.345');
+  });
+
+  it('hoàn tác và làm lại nhiều bước; thay đổi mới vô hiệu hóa làm lại', () => {
+    const store = createNotebookLibrary(memoryStorage());
+    store.initialize();
+    store.updateBook({ name: 'A' });
+    store.updateBook({ name: 'B' });
+    store.updateBook({ name: 'C' });
+    const latestUndo = () => store.getSnapshot().checkpoints.find((e) => !['redo', 'undo-backup'].includes(e.kind));
+    const latestRedo = () => store.getSnapshot().checkpoints.find((e) => e.kind === 'redo');
+    store.undoCheckpoint(latestUndo().id);
+    store.undoCheckpoint(latestUndo().id);
+    expect(store.getSnapshot().book.name).toBe('A');
+    store.redoCheckpoint(latestRedo().id);
+    expect(store.getSnapshot().book.name).toBe('B');
+    store.redoCheckpoint(latestRedo().id);
+    expect(store.getSnapshot().book.name).toBe('C');
+    store.undoCheckpoint(latestUndo().id);
+    store.updateBook({ name: 'D' });
+    expect(latestRedo()).toBeUndefined();
+    expect(store.getSnapshot().checkpoints.some((e) => e.kind === 'undo-backup')).toBe(true);
+  });
+
+  it('từ chối hoàn tác cũ khi có sửa mới, không ghi đè dữ liệu', () => {
+    const store = createNotebookLibrary(memoryStorage());
+    store.initialize();
+    store.updateBook({ name: 'A' }, { checkpoint: 'Xóa trạm' });
+    const stale = store.getSnapshot().checkpoints[0].id;
+    store.updateBook({ name: 'B' });
+    expect(store.undoCheckpoint(stale)).toBe(false);
+    expect(store.getSnapshot().book.name).toBe('B');
   });
 
   it('xóa trạm hoặc hoàn tất trạm chỉ được áp dụng khi lưu thành công', () => {

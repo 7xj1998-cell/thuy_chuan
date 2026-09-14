@@ -338,9 +338,14 @@ export function createNotebookLibrary(storage = defaultStorage()) {
         validateBook(nextBook);
         nextBook = { ...clone(nextBook), id: before.id, updatedAt: Date.now() };
       } catch (cause) { return report(cause); }
+      if (JSON.stringify({ ...before, updatedAt: 0 }) === JSON.stringify({ ...nextBook, updatedAt: 0 })) return true;
       const reason = options.checkpoint || (hasRemovedData(before, nextBook) ? 'Trước khi xóa dữ liệu đo' : null);
       let next = { ...library, books: library.books.map((book) => book.id === before.id ? nextBook : book) };
-      if (reason) next = withCheckpoint(next, before, reason);
+      const latest = library.checkpoints[0];
+      const grouped = options.undoGroup && latest?.undoGroup === options.undoGroup && latest.book.id === before.id && latest.kind === 'edit';
+      const entry = grouped ? { ...latest, reason: reason || latest.reason, kind: options.checkpoint ? 'action' : 'edit' }
+        : checkpoint(before, reason || options.undoLabel || 'Sửa dữ liệu sổ', { kind: options.undoGroup && !options.checkpoint ? 'edit' : 'action', undoGroup: options.undoGroup || null });
+      next.checkpoints = [entry, ...(grouped ? library.checkpoints.slice(1) : library.checkpoints).map((item) => item.kind === 'redo' && item.book.id === before.id ? { ...item, kind: 'undo-backup' } : item)].slice(0, CHECKPOINT_LIMIT);
       // Destructive changes and station completion must not advance if storage
       // fails. Ordinary typing stays visible so it can be exported/retried.
       if (reason) return commitTransition(() => next);
@@ -425,17 +430,29 @@ export function createNotebookLibrary(storage = defaultStorage()) {
       });
     },
     undoCheckpoint(id) {
-      const entry = library.checkpoints.find((item) => item.id === id && item.book.id === library.activeBookId && item.kind !== 'undo-backup');
+      const entry = library.checkpoints.find((item) => item.id === id && item.book.id === library.activeBookId && !['undo-backup', 'redo'].includes(item.kind));
       if (!entry) return report(new Error('Không tìm thấy thay đổi gần nhất để hoàn tác.'));
+      const latest = library.checkpoints.find((item) => item.book.id === library.activeBookId && !['undo-backup', 'redo'].includes(item.kind));
+      if (latest?.id !== id) return report(new Error('Đã có thay đổi mới. Hãy dùng nút Hoàn tác để kiểm tra thao tác gần nhất.'));
       return commitTransition((state) => {
         const current = currentBook();
         const restored = { ...clone(entry.book), id: current.id, updatedAt: Date.now() };
-        const undoBackup = checkpoint(current, 'Bản trước khi hoàn tác', { kind: 'undo-backup' });
+        const undoBackup = checkpoint(current, 'Bản trước khi hoàn tác', { kind: 'redo', actionReason: entry.reason });
         return {
           ...state,
           books: state.books.map((book) => book.id === current.id ? restored : book),
           checkpoints: [undoBackup, ...state.checkpoints.filter((item) => item.id !== entry.id)].slice(0, CHECKPOINT_LIMIT),
         };
+      });
+    },
+    redoCheckpoint(id) {
+      const entry = library.checkpoints.find((item) => item.book.id === library.activeBookId && item.kind === 'redo');
+      if (!entry || entry.id !== id) return report(new Error('Không còn thao tác phù hợp để làm lại.'));
+      return commitTransition((state) => {
+        const current = currentBook();
+        const undo = checkpoint(current, entry.actionReason || 'Làm lại thay đổi', { kind: 'action' });
+        return { ...state, books: state.books.map((book) => book.id === current.id ? { ...clone(entry.book), updatedAt: Date.now() } : book),
+          checkpoints: [undo, ...state.checkpoints.filter((item) => item.id !== entry.id)].slice(0, CHECKPOINT_LIMIT) };
       });
     },
     exportBackup() {
