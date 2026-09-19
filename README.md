@@ -2,6 +2,12 @@
 
 Ứng dụng ghi, tính và bình sai cao độ cho nhiều lượt đo độc lập, dùng chung mã nguồn cho web, iPhone và Android.
 
+## Phiên bản 2.10.1
+
+- Đã sửa chế độ đo 3 chỉ: khi nhập đủ ba chỉ của một mia, ứng dụng hiện ngay lệch chỉ giữa của mia đó mà không chờ hoàn thành mia còn lại.
+- Đã tách rõ `Lệch chỉ giữa BS`, `Lệch chỉ giữa FS` và `Chênh cự ly · ΔD`; ΔD tiếp tục chỉ xuất hiện khi có đủ số đọc của cả hai mia.
+- Đã bổ sung kiểm thử tính toán, giao diện và luồng nhập trực tiếp trên màn hình điện thoại.
+
 ## Phiên bản 2.10.0
 
 - Chốt bộ số 4 — Khối đặc (Heroicons Solid) làm mặc định cho bản phát hành; lựa chọn dùng thử cũ được đặt lại để mọi thiết bị nhận đúng bộ đã chọn.

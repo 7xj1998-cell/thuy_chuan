@@ -101,6 +101,25 @@ describe('cấu trúc giao diện mobile', () => {
     expect(html.match(/data-confirm-clear="true"/g)).toHaveLength(6);
   });
 
+  it('hiện lệch chỉ giữa của từng mia ngay khi riêng mia đó đủ ba chỉ', () => {
+    localStorage.setItem('so-thuy-chuan.active-draft.v2', JSON.stringify({
+      schemaVersion: 7,
+      id: 'book-three-reading-live-check',
+      name: 'Kiểm tra lệch 3 chỉ',
+      benchmarks: [{ id: 'b1', name: 'DG1', elevation: '1,000' }],
+      runs: [{ id: 'r1', name: 'Lượt 1', roundNumber: 1, startPoint: 'DG1', startMode: 'known', mode: 'three', stations: [{
+        id: 's1', point: '', pointType: 'turning', bsUpper: '1,234', bsMiddle: '1,201', bsLower: '1,166', fsUpper: '', fsMiddle: '', fsLower: '',
+      }] }],
+      settings: {},
+    }));
+    const html = renderToStaticMarkup(<App />);
+    expect(html).toContain('Kết quả kiểm tra ba chỉ');
+    expect(html).toContain('Lệch chỉ giữa BS');
+    expect(html).toContain('Lệch chỉ giữa FS');
+    expect(html).toMatch(/Lệch chỉ giữa BS[\s\S]*?\+1[\s\S]*?mm/);
+    expect(html).toMatch(/Lệch chỉ giữa FS[\s\S]*?—[\s\S]*?mm/);
+  });
+
   it('hiển thị đúng bước chọn mốc cho lượt chưa có điểm đầu', () => {
     localStorage.setItem('so-thuy-chuan.active-draft.v2', JSON.stringify({
       schemaVersion: 5,

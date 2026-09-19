@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adjustLevelingNetwork, adjustSolvedRun, compareRuns, createBook, createRun, createStation, finalizeStation, nextRunNumber, normalizeBook, removeStation, restoreStation, saveAsCopy, solveRun, staffDistance, START_MODE_KNOWN, START_MODE_UNKNOWN } from './model';
+import { adjustLevelingNetwork, adjustSolvedRun, compareRuns, createBook, createRun, createStation, finalizeStation, nextRunNumber, normalizeBook, removeStation, restoreStation, saveAsCopy, solveRun, staffDistance, stationReadings, START_MODE_KNOWN, START_MODE_UNKNOWN } from './model';
 import { POINT_TYPE_SIDE } from './pointNames';
 
 const benchmarks = [{ name: 'DG3', elevation: '2,222' }, { name: 'DG4', elevation: '1,641' }];
@@ -26,6 +26,17 @@ describe('schema v7 và bộ giải tuyến', () => {
     expect(compareRuns([a, b])).toContainEqual(expect.objectContaining({ name: 'DC7', spread: 0 }));
   });
   it('tính khoảng cách 3 chỉ 1.810/1.510/1.210 bằng 60 m', () => expect(staffDistance(1.810, 1.210)).toBeCloseTo(60, 8));
+  it('tính độc lập lệch chỉ giữa ngay khi đủ ba chỉ của một mia', () => {
+    const reading = stationReadings({
+      bsUpper: '1,234', bsMiddle: '1,201', bsLower: '1,166',
+      fsUpper: '', fsMiddle: '', fsLower: '',
+    }, 'three');
+    expect(reading.db).toBeCloseTo(6.8, 8);
+    expect(reading.bsMiddleError).toBe(1);
+    expect(reading.df).toBeNull();
+    expect(reading.fsMiddleError).toBeNull();
+    expect(reading.distanceDifference).toBeNull();
+  });
   it('không bắt buộc khoảng cách ở chế độ 1 chỉ', () => {
     const solved = solveRun(makeRun('DG3', ['TP1'], [225]), benchmarks);
     expect(solved.solved).toBe(true);

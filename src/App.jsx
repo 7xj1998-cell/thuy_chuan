@@ -922,10 +922,12 @@ function ThreeReadingMatrix({ station, row, update, confirmClear, finish }) {
           </div>
         ))}
       </div>
-      <div className="three-matrix-stats">
+      <div className="three-matrix-stats" aria-live="polite" aria-label="Kết quả kiểm tra ba chỉ">
         <span>D sau <b className="numeric">{formatMeters(row?.db)} m</b></span>
         <span>D trước <b className="numeric">{formatMeters(row?.df)} m</b></span>
-        <span>ΔD <b className="numeric">{formatMeters(row?.distanceDifference)} m</b></span>
+        <span>Lệch chỉ giữa BS <b className="numeric">{formatSignedMillimeters(row?.bsMiddleError)} mm</b></span>
+        <span>Lệch chỉ giữa FS <b className="numeric">{formatSignedMillimeters(row?.fsMiddleError)} mm</b></span>
+        <span className="three-distance-difference">Chênh cự ly · ΔD <b className="numeric">{formatMeters(row?.distanceDifference)} m</b></span>
       </div>
     </div>
   );
