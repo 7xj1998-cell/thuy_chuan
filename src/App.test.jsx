@@ -46,9 +46,11 @@ describe('cấu trúc giao diện mobile', () => {
     expect(html).toContain(`Sổ thủy chuẩn · Phiên bản ${metadata.version}`);
   });
 
-  it('bỏ lựa chọn Tia phụ khỏi luồng mới, giữ combobox và ghost name theo lượt', () => {
+  it('cho chọn Tia phụ hoặc Điểm chuyền, giữ combobox và tên gợi ý theo lượt', () => {
     const html = renderToStaticMarkup(<App />);
-    expect(html).not.toContain('Chọn loại điểm tới');
+    expect(html).toContain('Chọn loại điểm tới');
+    expect(html).toContain('Tia phụ</button>');
+    expect(html).toContain('Điểm chuyền</button>');
     expect(html).toContain('role="combobox"');
     expect(html).toContain('aria-autocomplete="list"');
     expect(html).toContain('placeholder="1.1"');
@@ -59,6 +61,19 @@ describe('cấu trúc giao diện mobile', () => {
     const html = renderToStaticMarkup(<App />);
     expect(html).toContain('Chưa có thay đổi để hoàn tác');
     expect(html).toContain('Hoàn tác');
+  });
+
+  it('tia phụ gợi ý TP theo số lượt và hiển thị hướng dẫn giữ gốc', () => {
+    localStorage.setItem('so-thuy-chuan.active-draft.v2', JSON.stringify({
+      schemaVersion: 7, id: 'side-book', name: 'Sổ tia phụ',
+      benchmarks: [{ id: 'b1', name: 'DG1', elevation: '1,000' }],
+      runs: [{ id: 'r2', name: 'Lượt 2', roundNumber: 2, startPoint: 'DG1', startMode: 'known', mode: 'single', stations: [{ id: 's1', point: '', pointType: 'side', bs: '', fs: '' }] }], settings: {},
+    }));
+    const html = renderToStaticMarkup(<App />);
+    expect(html).toContain('placeholder="TP.2.1"');
+    expect(html).toContain('Lưu tia phụ: giữ nguyên điểm đặt mia sau.');
+    expect(html).toMatch(/aria-pressed="true"[^>]*>Tia phụ<\/button>/);
+    expect(html).not.toContain('Dữ liệu TP cũ');
   });
 
   it('hiển thị dữ liệu cũ 2000.000 thành số đọc 2,000 m', () => {

@@ -391,9 +391,7 @@ export function finalizeStation(run, stationIndex, fallbackPoint = '') {
   const pointType = normalizePointType(station.pointType);
   const stations = run.stations.map((item, index) => index === stationIndex ? { ...item, point, pointType } : item);
   const appended = stationIndex === stations.length - 1;
-  // New observations always continue as turning points. A legacy side shot can
-  // still be opened and saved, but it never propagates into newly created data.
-  if (appended) stations.push(createStation('', POINT_TYPE_TURNING));
+  if (appended) stations.push(createStation('', pointType));
   return { committed: true, stations, nextIndex: appended ? stations.length - 1 : stationIndex + 1, point, pointType, appended };
 }
 

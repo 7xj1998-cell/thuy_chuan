@@ -510,7 +510,7 @@ export default function App() {
     if (!last.point && !READING_FIELDS.some((field) => String(last[field] ?? '').trim())) {
       setStationIndex(activeRun.stations.length - 1);
     } else {
-      if (!updateRun(activeRun.id, { stations: [...activeRun.stations, createStation('', POINT_TYPE_TURNING)] })) return;
+      if (!updateRun(activeRun.id, { stations: [...activeRun.stations, createStation('', normalizePointType(activeRun.stations.at(-1)?.pointType))] })) return;
       setStationIndex(activeRun.stations.length);
     }
     setTab('measure');
@@ -837,7 +837,7 @@ function Measure({ book, runs, availablePoints, run, solved, index, setIndex, up
   const recentControl = usedControls.filter((name) => /^DC/i.test(name)).at(-1) || null;
   const unresolved = row?.elevation === null || row?.elevation === undefined;
   const elevationText = unresolved ? 'Chưa xác định' : `${formatElevation(row.elevation)} m`;
-  const legacySide = pointType === POINT_TYPE_SIDE;
+  const isSide = pointType === POINT_TYPE_SIDE;
 
   return (
     <section className="measure-shell">
@@ -852,7 +852,7 @@ function Measure({ book, runs, availablePoints, run, solved, index, setIndex, up
         <div className="measure-primary">
           <div className="measure-route-line">
             <span>Trạm {index + 1}</span><b>{row?.fromName || run.startPoint || '—'} <ArrowRight /> {displayPoint}</b>
-            {legacySide && <em>Dữ liệu TP cũ · chỉ đọc loại điểm</em>}
+            {isSide && <em>Tia phụ</em>}
           </div>
           <div className="survey-console">
             <div className="console-top">
@@ -877,8 +877,13 @@ function Measure({ book, runs, availablePoints, run, solved, index, setIndex, up
             </div>
           </div>
           <div className="pointbox">
+            <div className="point-type-toggle" role="group" aria-label="Chọn loại điểm tới">
+              <button type="button" aria-pressed={!isSide} className={!isSide ? 'active' : ''} onClick={() => update('pointType', POINT_TYPE_TURNING)}>Điểm chuyền</button>
+              <button type="button" aria-pressed={isSide} className={isSide ? 'active' : ''} onClick={() => update('pointType', POINT_TYPE_SIDE)}>Tia phụ</button>
+            </div>
+            <p className="point-type-note">{isSide ? 'Lưu tia phụ: giữ nguyên điểm đặt mia sau.' : 'Lưu điểm chuyền: chuyển điểm đặt mia sau tới điểm mới.'}</p>
             <div className="point-entry"><span>Điểm tới</span><PointCombobox key={station.id} ariaLabel="Điểm tới" options={availablePoints} scopeKey={book.id} placeholder={autoName} value={station.point} onValueChange={(value) => update('point', value)} /></div>
-            {!legacySide && recentControl && <div className="control-point-hints">
+            {!isSide && recentControl && <div className="control-point-hints">
               {recentControl && <span>DC gần nhất: <b>{recentControl}</b></span>}
             </div>}
           </div>

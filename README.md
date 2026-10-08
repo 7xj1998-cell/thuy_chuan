@@ -2,6 +2,15 @@
 
 Ứng dụng ghi, tính và bình sai cao độ cho nhiều lượt đo độc lập, dùng chung mã nguồn cho web, iPhone và Android.
 
+## Phiên bản 2.11.0
+
+- Đã thêm lựa chọn **Điểm chuyền / Tia phụ** trong cả chế độ đo 1 chỉ và 3 chỉ.
+- Đã gợi ý tên tia phụ theo số lượt ổn định: `TP.1.1`, `TP.1.2`… cho lượt 1; `TP.2.1`, `TP.2.2`… cho lượt 2. Đổi gốc hoặc xen điểm chuyền không đặt lại số tia phụ. Tên đã lưu giữ nguyên khi sửa/xóa trạm.
+- Khi lưu tia phụ, điểm đặt mia sau giữ nguyên và trạm tiếp theo tiếp tục ở loại Tia phụ. Khi lưu điểm chuyền, gốc chuyển tới điểm vừa đo.
+- Khi nhân bản lượt, tên tia phụ tự sinh chuyển sang số lượt mới; tên tùy chỉnh và dữ liệu tia phụ cũ vẫn được giữ. Tia phụ không tham gia phương trình bình sai tuyến; cao độ của tia phụ lấy theo gốc đã bình sai.
+
+Kiểm tra thao tác trên điện thoại với server ở cổng 5173: `python -X utf8 scripts/verify-side-shots.py`.
+
 ## Phiên bản 2.10.1
 
 - Đã sửa chế độ đo 3 chỉ: khi nhập đủ ba chỉ của một mia, ứng dụng hiện ngay lệch chỉ giữa của mia đó mà không chờ hoàn thành mia còn lại.

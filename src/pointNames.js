@@ -72,6 +72,7 @@ export function stationOrigin(run, stationIndex) {
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const autoNamePart = (value) => cleanPointName(value || 'DIEM_GOC').replace(/\s+/g, '_').replace(/\.+/g, '_');
 const isGeneratedSidePointName = (run, stationIndex, value) => {
+  if (/^TP\.\d+\.\d+$/.test(cleanPointName(value))) return true;
   const origin = autoNamePart(stationOrigin(run, stationIndex));
   return new RegExp(`^TP_${escapeRegExp(origin)}(?:_L\\d+)?\\.\\d+$`).test(cleanPointName(value));
 };
@@ -95,9 +96,7 @@ export function suggestTargetPointName(book, runId, stationIndex, requestedType)
     return `${roundNumber}.${greatest + 1}`;
   }
 
-  const origin = autoNamePart(stationOrigin(run, stationIndex));
-  const roundTag = roundNumber > 1 ? `_L${roundNumber}` : '';
-  const base = `TP_${origin}${roundTag}`;
+  const base = `TP.${roundNumber}`;
   const pattern = new RegExp(`^${escapeRegExp(base)}\\.(\\d+)$`);
   const used = new Set(collectPointNames(book));
   let greatest = 0;

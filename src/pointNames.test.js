@@ -81,11 +81,11 @@ describe('tên điểm và gợi ý thông minh', () => {
     ]);
     const second = run('r2', 'MOC_A', [station('DC1'), station('', POINT_TYPE_SIDE)]);
     const book = { benchmarks: [{ name: 'MOC_A' }], runs: [first, second] };
-    expect(suggestTargetPointName(book, 'r1', 3, POINT_TYPE_SIDE)).toBe('TP_DC1.3');
+    expect(suggestTargetPointName(book, 'r1', 3, POINT_TYPE_SIDE)).toBe('TP.1.1');
     first.roundNumber = 1;
     second.roundNumber = 2;
     expect(suggestTargetPointName(book, 'r1', 3, POINT_TYPE_TURNING)).toBe('1.1');
-    expect(suggestTargetPointName(book, 'r2', 1, POINT_TYPE_SIDE)).toBe('TP_DC1_L2.1');
+    expect(suggestTargetPointName(book, 'r2', 1, POINT_TYPE_SIDE)).toBe('TP.2.1');
     expect(suggestTargetPointName(book, 'r2', 1, POINT_TYPE_TURNING)).toBe('2.1');
   });
 
@@ -108,13 +108,24 @@ describe('tên điểm và gợi ý thông minh', () => {
     expect(collectSelectableControlPoints(book)).toEqual(['A1', 'DC1', 'DC2', 'DC10', 'GPS_1']);
   });
 
-  it('giữ namespace lượt đo sau khi xóa một lượt đứng trước', () => {
+  it('giữ số lượt và tiếp tục tên tia phụ sau khi xóa một lượt đứng trước', () => {
     const second = {
-      ...run('r2', 'DG1', [station('TP_DG1_L2.1', POINT_TYPE_SIDE), station('', POINT_TYPE_SIDE)]),
+      ...run('r2', 'DG1', [station('TP.2.1', POINT_TYPE_SIDE), station('', POINT_TYPE_SIDE)]),
       roundNumber: 2,
     };
     const bookAfterDeletion = { benchmarks: [{ name: 'DG1' }], runs: [second] };
-    expect(suggestTargetPointName(bookAfterDeletion, 'r2', 1, POINT_TYPE_SIDE)).toBe('TP_DG1_L2.2');
+    expect(suggestTargetPointName(bookAfterDeletion, 'r2', 1, POINT_TYPE_SIDE)).toBe('TP.2.2');
+  });
+
+  it('đánh số tia phụ liên tục trong lượt qua nhiều gốc và tránh tên đã có trong sổ', () => {
+    const active = { ...run('r1', 'DG1', [
+      station('TP.1.1', POINT_TYPE_SIDE), station('1.1'),
+      station('TP.1.3', POINT_TYPE_SIDE), station('', POINT_TYPE_SIDE),
+    ]), roundNumber: 1 };
+    const book = { benchmarks: [{ name: 'TP.1.5' }], runs: [active, run('r2', 'DG1', [station('TP.1.6', POINT_TYPE_SIDE)])] };
+    expect(suggestTargetPointName(book, 'r1', 3, POINT_TYPE_SIDE)).toBe('TP.1.7');
+    expect(suggestTargetPointName(book, 'r1', 3, POINT_TYPE_TURNING)).toBe('1.2');
+    expect(active.stations.map((item) => item.point)).toEqual(['TP.1.1', '1.1', 'TP.1.3', '']);
   });
 
   it('trả về toàn bộ điểm khớp thay vì cắt ở tám gợi ý', () => {
@@ -134,6 +145,13 @@ describe('tên điểm và gợi ý thông minh', () => {
       roundNumber: 1,
     };
     const names = remapGeneratedSidePointNames({ benchmarks: [], runs: [source] }, source, 'r2', 2).map((item) => item.point);
-    expect(names).toEqual(['TP_DG1_L2.1', 'TP_DG1_L2.2', 'TIM_DUONG', 'DC1', 'TP_DC1_L2.1']);
+    expect(names).toEqual(['TP.2.1', 'TP.2.2', 'TIM_DUONG', 'DC1', 'TP.2.3']);
+  });
+
+  it('nhân bản tên TP.lượt.số theo lượt mới, tránh trùng và giữ tên tùy chỉnh', () => {
+    const source = { ...run('r1', 'DG1', [station('TP.1.1', POINT_TYPE_SIDE), station('TIM_DUONG', POINT_TYPE_SIDE), station('TP.1.2', POINT_TYPE_SIDE)]), roundNumber: 1 };
+    const book = { benchmarks: [{ name: 'TP.3.1' }], runs: [source] };
+    expect(remapGeneratedSidePointNames(book, source, 'r3', 3).map((item) => item.point)).toEqual(['TP.3.2', 'TIM_DUONG', 'TP.3.3']);
+    expect(source.stations[0].point).toBe('TP.1.1');
   });
 });

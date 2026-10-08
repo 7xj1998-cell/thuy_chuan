@@ -142,12 +142,12 @@ describe('schema v7 và bộ giải tuyến', () => {
     expect(adjusted.points.find((point) => point.name === 'DG2').elevation).toBe(12001);
     expect(adjusted.points.find((point) => point.name === 'DC1').elevation).toBeCloseTo(11000.5, 8);
   });
-  it('cam kết TP cũ nhưng trạm nhập mới luôn trở lại điểm chuyền', () => {
+  it('lưu tia phụ và giữ loại tia phụ cho trạm nhập kế tiếp', () => {
     const run = { ...createRun(1, 'DG1'), stations: [createStation('', POINT_TYPE_SIDE)] };
-    const result = finalizeStation(run, 0, 'TP_DG1.1');
-    expect(result).toEqual(expect.objectContaining({ committed: true, nextIndex: 1, appended: true, point: 'TP_DG1.1', pointType: POINT_TYPE_SIDE }));
-    expect(result.stations[0]).toEqual(expect.objectContaining({ point: 'TP_DG1.1', pointType: POINT_TYPE_SIDE }));
-    expect(result.stations[1]).toEqual(expect.objectContaining({ point: '', pointType: 'turning' }));
+    const result = finalizeStation(run, 0, 'TP.1.1');
+    expect(result).toEqual(expect.objectContaining({ committed: true, nextIndex: 1, appended: true, point: 'TP.1.1', pointType: POINT_TYPE_SIDE }));
+    expect(result.stations[0]).toEqual(expect.objectContaining({ point: 'TP.1.1', pointType: POINT_TYPE_SIDE }));
+    expect(result.stations[1]).toEqual(expect.objectContaining({ point: '', pointType: POINT_TYPE_SIDE, bs: '', fs: '' }));
   });
   it('không tính trạm nháp sau khi hoàn tất vào điểm cuối hoặc số lượng ĐC/TP', () => {
     const source = { ...createRun(1, 'DG1'), stations: [{ ...createStation(), bs: '1,000', fs: '0,900' }] };
@@ -224,6 +224,21 @@ describe('schema v7 và bộ giải tuyến', () => {
     const second = solveRun({ ...createRun(2, 'DG1'), stations: [{ ...createStation('MOC_A'), bs: '1,000', fs: '0,500' }, { ...createStation('MOC_A', POINT_TYPE_SIDE), bs: '1,000', fs: '0,500' }] }, controls);
     const groups = compareRuns([first, second]);
     expect(groups.map((group) => group.name)).toEqual(['DG1']);
+  });
+
+  it('tia phụ liên tiếp dùng cùng gốc, điểm chuyền mới chuyển gốc cho tia phụ sau', () => {
+    const run = { ...createRun(1, 'DG1'), stations: [
+      { ...createStation('TP.1.1', POINT_TYPE_SIDE), bs: '1,500', fs: '1,200' },
+      { ...createStation('TP.1.2', POINT_TYPE_SIDE), bs: '1,500', fs: '1,100' },
+      { ...createStation('1.1'), bs: '1,500', fs: '1,000' },
+      { ...createStation('TP.1.3', POINT_TYPE_SIDE), bs: '1,500', fs: '1,300' },
+    ] };
+    const solved = solveRun(run, [{ name: 'DG1', elevation: '10,000' }]);
+    expect(solved.rows.map((row) => row.fromName)).toEqual(['DG1', 'DG1', 'DG1', '1.1']);
+    expect(solved.rows.map((row) => row.elevation)).toEqual([10300, 10400, 10500, 10700]);
+    expect(solved.endPoint).toBe('1.1');
+    expect(solved.turningCount).toBe(1);
+    expect(solved.sideCount).toBe(3);
   });
 
   it('mặc định dữ liệu cũ là mốc đầu đã biết và migration chạy lặp an toàn', () => {
