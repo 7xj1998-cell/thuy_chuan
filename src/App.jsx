@@ -106,6 +106,72 @@ function pulse(pattern) {
   } catch { /* haptics are optional on iOS/WebView */ }
 }
 
+function readingInputs(input) {
+  return Array.from(input.closest('.measure-shell')?.querySelectorAll('input[data-reading]') || [])
+    .sort((left, right) => READING_FIELDS.indexOf(left.dataset.reading) - READING_FIELDS.indexOf(right.dataset.reading));
+}
+
+function advanceReading(input, onComplete) {
+  const fields = readingInputs(input);
+  const next = fields[fields.indexOf(input) + 1];
+  if (next) {
+    next.focus({ preventScroll: true });
+    next.select();
+    next.scrollIntoView({ block: 'center', behavior: 'instant' });
+  } else {
+    input.blur();
+    if (onComplete) window.setTimeout(onComplete, 0);
+  }
+}
+
+function ReadingKeyboardBar({ onComplete }) {
+  const inputRef = useRef(null);
+  const [bar, setBar] = useState(null);
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const update = () => {
+      const input = document.activeElement;
+      const compact = window.innerWidth < 700 || window.matchMedia('(pointer: coarse)').matches;
+      if (!compact || !input?.matches('.measure-shell input[data-reading]')) {
+        inputRef.current = null;
+        setBar(null);
+        document.body.classList.remove('reading-keyboard-open');
+        return;
+      }
+      inputRef.current = input;
+      const fields = readingInputs(input);
+      const next = fields[fields.indexOf(input) + 1];
+      setBar({
+        top: Math.max(0, (viewport?.offsetTop || 0) + (viewport?.height || window.innerHeight) - 56),
+        left: viewport?.offsetLeft || 0, width: viewport?.width || window.innerWidth,
+        last: !next,
+        hint: next ? next.getAttribute('aria-label').replace(' theo mét', '').replace('Số đọc ', '') : 'Lưu trạm',
+      });
+      document.body.classList.add('reading-keyboard-open');
+    };
+    update();
+    viewport?.addEventListener('resize', update);
+    viewport?.addEventListener('scroll', update);
+    window.addEventListener('resize', update);
+    document.addEventListener('focusin', update);
+    document.addEventListener('focusout', update);
+    return () => {
+      viewport?.removeEventListener('resize', update);
+      viewport?.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+      document.removeEventListener('focusin', update);
+      document.removeEventListener('focusout', update);
+      document.body.classList.remove('reading-keyboard-open');
+    };
+  }, []);
+  if (!bar) return null;
+  return <div className="reading-keyboard-bar" role="toolbar" aria-label="Điều khiển bàn phím số" style={{ top: bar.top, left: bar.left, width: bar.width }}>
+    <span><small>{bar.last ? 'Hoàn tất số đọc' : 'Ô tiếp theo'}</small>{bar.hint}</span>
+    <button type="button" className="primary" aria-label={bar.last ? 'Enter: lưu trạm' : 'Enter: chuyển ô tiếp theo'} onPointerDown={(event) => event.preventDefault()} onClick={() => { if (inputRef.current) advanceReading(inputRef.current, onComplete); }}>Enter ↵</button>
+    <button type="button" className="keyboard-dismiss" onPointerDown={(event) => event.preventDefault()} onClick={() => inputRef.current?.blur()}>Xong</button>
+  </div>;
+}
+
 function MeterInput({ value, onValueChange, staffReading = false, sanitizer = sanitizeMeterInput, normalizer, className = '', placeholder = '0,000', onKeyDown, onComplete, confirmClear, ...props }) {
   const normalize = normalizer || (staffReading ? normalizeStaffInput : normalizeMeterInput);
   return (
@@ -129,13 +195,7 @@ function MeterInput({ value, onValueChange, staffReading = false, sanitizer = sa
         onKeyDown?.(event);
         if (!event.defaultPrevented && event.key === 'Enter') {
           event.preventDefault();
-          const fields = Array.from(event.currentTarget.closest('.measure-shell')?.querySelectorAll('[data-reading]') || []);
-          const next = fields[fields.indexOf(event.currentTarget) + 1];
-          if (next) next.focus();
-          else {
-            event.currentTarget.blur();
-            if (onComplete) window.setTimeout(onComplete, 0);
-          }
+          advanceReading(event.currentTarget, onComplete);
         }
       }}
     />
@@ -711,6 +771,7 @@ export default function App() {
       </main>
       {iconChooserOpen && <SheetDialog title="Chọn bộ icon" description="Xem thử 5 phong cách cho toàn bộ ứng dụng." className="icon-picker-sheet" onClose={() => setIconChooserOpen(false)}><IconChooser /></SheetDialog>}
       {tab === 'measure' && activeRun.startPoint && <CaptureDock book={book} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} finish={() => finishStation()} />}
+      {tab === 'measure' && activeRun.startPoint && !dialog && !settingsRun && !originPickerRun && !iconChooserOpen && <ReadingKeyboardBar onComplete={() => finishStation()} />}
       <nav className="bottom" aria-label="Điều hướng chính">
         {NAV_ITEMS.map(({ id, label, Icon }) => <button key={id} className={tab === id ? 'active' : ''} aria-current={tab === id ? 'page' : undefined} onClick={() => changeTab(id)}><span className="nav-icon" aria-hidden="true"><Icon /></span><span className="nav-label">{label}</span></button>)}
       </nav>

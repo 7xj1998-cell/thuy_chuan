@@ -3376,6 +3376,13 @@ body.keyboard-open .app-v27 .capture-dock {
 }
 body.keyboard-open .app-v27 input { scroll-margin-bottom: 112px; }
 
+.reading-keyboard-bar { position: fixed; z-index: 90; display: flex; align-items: center; gap: 8px; height: 56px; padding: 6px max(8px, var(--safe-right)) 6px max(8px, var(--safe-left)); border-top: 1px solid var(--line); background: #f1f5f9; box-shadow: 0 -4px 16px rgba(16, 42, 67, .1); }
+.reading-keyboard-bar > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #334155; font-size: 12px; font-weight: 650; }
+.reading-keyboard-bar small { display: block; margin-bottom: 3px; color: #64748b; font-size: 10px; font-weight: 500; }
+.reading-keyboard-bar button { flex-shrink: 0; min-height: 44px; height: 44px; padding: 8px 14px; font-size: 14px; }
+.reading-keyboard-bar .keyboard-dismiss { border: 0; background: transparent; color: #0f766e; box-shadow: none; padding: 8px; }
+body.reading-keyboard-open .app-v27 .capture-dock, body.reading-keyboard-open .app-v27 .bottom { display: none; }
+
 @media (min-width: 700px) {
   .app-v27 .sheet-backdrop { align-items: center; justify-content: center; padding: max(20px, var(--safe-top)) max(20px, var(--safe-right)) max(20px, var(--safe-bottom)) max(20px, var(--safe-left)); }
   .app-v27 .sheet-panel { border-radius: 20px; }

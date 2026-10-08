@@ -2,6 +2,14 @@
 
 Ứng dụng ghi, tính và bình sai cao độ cho nhiều lượt đo độc lập, dùng chung mã nguồn cho web, iPhone và Android.
 
+## Phiên bản 2.11.1
+
+- Đã thêm nút **Enter ↵** ngay phía trên bàn phím số khi nhập số đọc trên điện thoại; chuyển sang ô kế tiếp mà không đóng bàn phím. Nút **Xong** đóng bàn phím khi cần.
+- Đã sửa thứ tự Enter trong chế độ 3 chỉ: Mia sau Trên → Giữa → Dưới, rồi Mia trước Trên → Giữa → Dưới. Enter ở ô cuối thực hiện lưu trạm theo kiểm tra dữ liệu hiện có.
+- Thanh Enter theo vùng hiển thị khi bàn phím mở hoặc cuộn; chế độ 1 chỉ và phím Enter trên bàn phím ngoài dùng cùng cách chuyển ô.
+
+Kiểm tra thao tác Enter với server ở cổng 5173: `python -X utf8 scripts/verify-keyboard-enter.py`. Script mô phỏng vùng hiển thị bị thu nhỏ bởi bàn phím; cần kiểm tra thêm bàn phím iOS thực trên thiết bị.
+
 ## Phiên bản 2.11.0
 
 - Đã thêm lựa chọn **Điểm chuyền / Tia phụ** trong cả chế độ đo 1 chỉ và 3 chỉ.
