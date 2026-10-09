@@ -1,5 +1,6 @@
 import { uppercaseName } from './calc';
 import { stationOrigin } from './pointNames';
+import { withInheritedBacksights } from './stationSetup';
 import { formatMeters, metersToMillimeters, normalizeMeterInput, normalizeStaffInput } from './units';
 
 // These are editable data-entry reminders, not surveying acceptance standards.
@@ -51,6 +52,7 @@ export function normalizeStationDraft(station = {}, mode = 'single') {
 }
 
 export function inspectStation(book, run, index, targetName = '') {
+  if (run) run = withInheritedBacksights(run);
   const errors = [];
   const warnings = [];
   const issue = (list, field, code, message) => list.push({ field, code, message });

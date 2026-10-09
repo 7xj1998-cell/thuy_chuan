@@ -36,6 +36,8 @@ def save_readings(page, expected_next, three=False):
     ]
     for label, value in readings:
         field = page.get_by_role('textbox', name=label, exact=True)
+        if field.get_attribute('readonly') is not None:
+            continue
         field.fill(value)
         field.blur()
     page.get_by_role('button', name='Lưu trạm', exact=True).click()
@@ -63,6 +65,7 @@ with sync_playwright() as playwright:
     target = page.get_by_role('combobox', name='Điểm tới', exact=True)
     expect(target).to_have_attribute('placeholder', '1.1')
     side.click()
+    page.get_by_role('button', name='Nhập mia sau mới', exact=True).click()
     expect(target).to_have_attribute('placeholder', 'TP.1.1')
     save_readings(page, 'TP.1.2')
     expect(side).to_have_attribute('aria-pressed', 'true')
@@ -74,6 +77,7 @@ with sync_playwright() as playwright:
     save_readings(page, '1.2')
     assert '1.1' in page.locator('.console-top').inner_text()
     side.click()
+    page.get_by_role('button', name='Dùng lại mia sau', exact=True).click()
     expect(target).to_have_attribute('placeholder', 'TP.1.3')
     save_readings(page, 'TP.1.4')
     saved = current_book(page)['runs'][0]['stations']
@@ -88,7 +92,7 @@ with sync_playwright() as playwright:
         page.get_by_role('button', name='Trạm tiếp theo', exact=True).click()
     expect(target).to_have_attribute('placeholder', 'TP.1.4')
     expect(side).to_have_attribute('aria-pressed', 'true')
-    assert '1.1' in page.locator('.console-top').inner_text()
+    assert 'DG1' in page.locator('.console-top').inner_text()
     for width in [390, 320]:
         page.set_viewport_size({'width': width, 'height': 844})
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
@@ -108,6 +112,7 @@ with sync_playwright() as playwright:
     three_page.on('pageerror', lambda error: errors.append(str(error)))
     three_page.goto('http://127.0.0.1:5173', wait_until='networkidle')
     three_page.get_by_role('button', name='Tia phụ', exact=True).click()
+    three_page.get_by_role('button', name='Nhập mia sau mới', exact=True).click()
     expect(three_page.get_by_role('combobox', name='Điểm tới', exact=True)).to_have_attribute('placeholder', 'TP.2.1')
     save_readings(three_page, 'TP.2.2', three=True)
     assert current_book(three_page)['runs'][0]['stations'][0]['point'] == 'TP.2.1'

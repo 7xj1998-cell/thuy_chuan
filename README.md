@@ -2,6 +2,16 @@
 
 Ứng dụng ghi, tính và bình sai cao độ cho nhiều lượt đo độc lập, dùng chung mã nguồn cho web, iPhone và Android.
 
+## Phiên bản 2.11.2
+
+- Đã sửa tia phụ dùng chung lần đặt máy: tự dùng lại mia sau và gốc trạm trước, kể cả khi điểm chuyền đã lưu. Không dùng điểm vừa đo làm gốc mới cho tia phụ cùng lần đặt máy.
+- Đã thêm nhắc nhở khi chuyển sang **Tia phụ**: chọn **Dùng lại mia sau** nếu chưa chuyển máy, hoặc **Đã chuyển máy** để nhập mia sau mới. Các số đọc mia trước đã nhập vẫn được giữ.
+- Tia phụ liên tiếp giữ số mia sau, chỉ cần nhập mia trước. Enter bỏ qua các ô mia sau dùng chung; sửa số đọc gốc cập nhật các tia phụ liên kết. Báo cáo Excel/PDF dùng đúng gốc và số đọc này.
+- Đã giữ liên kết mia sau khi nhân bản lượt; giữ số đọc và gốc khi xóa trạm nguồn. Không ghi đè số mia sau tự nhập hoặc tự đổi cách tính của tia phụ cũ đã lưu.
+- Dữ liệu sổ nâng lên schema v8 để lưu liên kết lần đặt máy. Sổ cũ tiếp tục mở được; sổ đã lưu bằng bản này cần ứng dụng v2.11.2 trở lên để mở.
+
+Kiểm tra tình huống tia phụ sau điểm chuyền với server ở cổng 5173: `python -X utf8 scripts/verify-shared-backsight.py`.
+
 ## Phiên bản 2.11.1
 
 - Đã thêm nút **Enter ↵** ngay phía trên bàn phím số khi nhập số đọc trên điện thoại; chuyển sang ô kế tiếp mà không đóng bàn phím. Nút **Xong** đóng bàn phím khi cần.

@@ -43,6 +43,7 @@ import {
   solveRun,
 } from './model';
 import { uid, uppercaseName } from './calc';
+import { hasBacksight, remapBacksightLinks, shareBacksight, useNewBacksight, withInheritedBacksights } from './stationSetup';
 import {
   collectSelectableControlPoints,
   filterPointNames,
@@ -51,6 +52,7 @@ import {
   POINT_TYPE_SIDE,
   POINT_TYPE_TURNING,
   remapGeneratedSidePointNames,
+  stationOrigin,
   suggestTargetPointName,
 } from './pointNames';
 import { exportExcelReport, exportPdfReport, exportLibraryBackup } from './report';
@@ -107,7 +109,7 @@ function pulse(pattern) {
 }
 
 function readingInputs(input) {
-  return Array.from(input.closest('.measure-shell')?.querySelectorAll('input[data-reading]') || [])
+  return Array.from(input.closest('.measure-shell')?.querySelectorAll('input[data-reading]:not([readonly]):not(:disabled)') || [])
     .sort((left, right) => READING_FIELDS.indexOf(left.dataset.reading) - READING_FIELDS.indexOf(right.dataset.reading));
 }
 
@@ -132,7 +134,7 @@ function ReadingKeyboardBar({ onComplete }) {
     const update = () => {
       const input = document.activeElement;
       const compact = window.innerWidth < 700 || window.matchMedia('(pointer: coarse)').matches;
-      if (!compact || !input?.matches('.measure-shell input[data-reading]')) {
+      if (!compact || !input?.matches('.measure-shell input[data-reading]:not([readonly])')) {
         inputRef.current = null;
         setBar(null);
         document.body.classList.remove('reading-keyboard-open');
@@ -190,7 +192,7 @@ function MeterInput({ value, onValueChange, staffReading = false, sanitizer = sa
         }
         onValueChange(nextValue);
       }}
-      onBlur={(event) => onValueChange(normalize(event.currentTarget.value))}
+      onBlur={(event) => { if (!props.readOnly) onValueChange(normalize(event.currentTarget.value)); }}
       onKeyDown={(event) => {
         onKeyDown?.(event);
         if (!event.defaultPrevented && event.key === 'Enter') {
@@ -493,11 +495,36 @@ export default function App() {
   }));
   const updateStation = (run, stationId, field, value) => updateBook((previous) => ({
     ...previous, runs: previous.runs.map((item) => item.id === run.id ? {
-      ...item, stations: item.stations.map((station) => station.id === stationId
+      ...withInheritedBacksights({ ...item, stations: item.stations.map((station) => station.id === stationId
         ? { ...station, [field]: field === 'point' ? uppercaseName(value).trimStart() : value, committedAt: undefined }
-        : station),
+        : station) }),
     } : item),
   }), { undoGroup: `station:${run.id}:${stationId}`, undoLabel: 'Sửa số liệu trạm' });
+  function requestPointType(run, stationId, pointType, newSetup = false) {
+    const index = run.stations.findIndex((item) => item.id === stationId);
+    const station = run.stations[index];
+    if (!station) return;
+    const apply = (shared) => {
+      updateBook((previous) => ({ ...previous, runs: previous.runs.map((item) => {
+        if (item.id !== run.id) return item;
+        const next = shared ? shareBacksight(item, index) : useNewBacksight(item.stations[index], item.mode, pointType);
+        return withInheritedBacksights({ ...item, stations: item.stations.map((entry, i) => i === index ? { ...next, committedAt: undefined } : entry) });
+      }) }), { undoGroup: `station:${run.id}:${stationId}`, undoLabel: 'Đổi loại điểm và mia sau' });
+      setDialog(null);
+    };
+    if (pointType === POINT_TYPE_TURNING) { if (station.pointType !== pointType) apply(false); return; }
+    if (!newSetup && station.pointType === POINT_TYPE_SIDE && station.backsightMode) return;
+    const source = run.stations[index - 1];
+    const available = !newSetup && hasBacksight(source, run.mode);
+    setDialog({
+      title: newSetup ? 'Đã chuyển máy?' : 'Chuyển sang Tia phụ',
+      description: available ? `Nếu máy chưa chuyển, dùng lại mia sau của trạm ${index} tại ${stationOrigin(run, index - 1)}. Tia phụ chỉ cần nhập mia trước.` : 'Nếu đã chuyển máy hoặc chưa có mia sau của lần đặt máy này, cần nhập số đọc mia sau mới.',
+      messages: ['Tia phụ không chuyển điểm đặt mia sau và không tham gia bình sai tuyến.'],
+      confirmLabel: available ? 'Dùng lại mia sau' : 'Nhập mia sau mới',
+      onConfirm: () => apply(available),
+      ...(available ? { alternativeLabel: 'Đã chuyển máy', onAlternative: () => apply(false) } : {}),
+    });
+  }
   function selectRun(id) {
     dispatchPanel({ type: 'reset' }); setRunId(id); setStationIndex(0);
   }
@@ -567,7 +594,7 @@ export default function App() {
   }
   function addStation() {
     const last = activeRun.stations.at(-1);
-    if (!last.point && !READING_FIELDS.some((field) => String(last[field] ?? '').trim())) {
+    if (!last.point && !READING_FIELDS.some((field) => !(last.backsightMode === 'shared' && field.startsWith('bs')) && String(last[field] ?? '').trim())) {
       setStationIndex(activeRun.stations.length - 1);
     } else {
       if (!updateRun(activeRun.id, { stations: [...activeRun.stations, createStation('', normalizePointType(activeRun.stations.at(-1)?.pointType))] })) return;
@@ -617,7 +644,7 @@ export default function App() {
     setStationIndex(result.nextIndex);
     setToast({ text: 'Đã lưu ' + result.point + ' · ' + (pointType === POINT_TYPE_SIDE ? 'Giữ nguyên mia sau' : 'Sẵn sàng trạm tiếp theo') });
     requestAnimationFrame(() => {
-      const field = measureRef.current?.querySelector('[data-reading="bs"], [data-reading="bsUpper"]');
+      const field = measureRef.current?.querySelector('input[data-reading]:not([readonly])');
       field?.focus({ preventScroll: true });
       field?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     });
@@ -691,8 +718,9 @@ export default function App() {
   }
   function duplicateRun(targetRun = activeRun) {
     const id = uid(), roundNumber = nextRunNumber(book.runs);
+    const newIds = new Map(targetRun.stations.map((station) => [station.id, uid()]));
     const copy = { ...structuredClone(targetRun), id, roundNumber, name: targetRun.name + ' - bản sao',
-      stations: remapGeneratedSidePointNames(book, targetRun, id, roundNumber).map((station) => ({ ...station, id: uid() })),
+      stations: remapBacksightLinks(remapGeneratedSidePointNames(book, targetRun, id, roundNumber), newIds),
     };
     if (updateBook((previous) => ({ ...previous, runs: [...previous.runs, copy] }))) selectRun(copy.id);
   }
@@ -764,7 +792,7 @@ export default function App() {
         {library.storageError && <div className="storage-banner" role="alert"><TriangleAlert /><div><b>Cần bảo vệ dữ liệu</b><p>{library.storageError}</p><button onClick={backupAll} disabled={Boolean(exporting)}>Tải sao lưu ngay</button><button onClick={save}>Thử lưu lại</button></div></div>}
         {library.saveState === 'recovered' && !library.storageError && <p className="storage-banner" role="status">Đã khôi phục thư viện từ bản lưu an toàn gần nhất.</p>}
         {tab === 'route' && <RunPicker runs={book.runs} solvedRuns={solvedRuns} runId={activeRun.id} onSelect={selectRun} onAdd={() => addRun()} />}
-        {tab === 'measure' && <div ref={measureRef}><Measure book={book} runs={book.runs} availablePoints={availablePoints} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} updateStation={updateStation} finish={() => finishStation()} changeMode={changeMode} checksRequested={checksRequested} saveState={library.saveState} onSelectRun={selectRun} onOpenSettings={() => openRunSettings(activeRun.id)} onUndo={requestUndo} undoEntry={undoEntry} onRequestClear={requestClearReading} onStart={(name, startMode) => setRunOrigin(activeRun, name, { confirm: false, initial: true, startMode })} onManageBenchmarks={goToBenchmarks} /></div>}
+        {tab === 'measure' && <div ref={measureRef}><Measure book={book} runs={book.runs} availablePoints={availablePoints} run={activeRun} solved={activeSolved} index={stationIndex} setIndex={setStationIndex} updateStation={updateStation} onChangePointType={requestPointType} finish={() => finishStation()} changeMode={changeMode} checksRequested={checksRequested} saveState={library.saveState} onSelectRun={selectRun} onOpenSettings={() => openRunSettings(activeRun.id)} onUndo={requestUndo} undoEntry={undoEntry} onRequestClear={requestClearReading} onStart={(name, startMode) => setRunOrigin(activeRun, name, { confirm: false, initial: true, startMode })} onManageBenchmarks={goToBenchmarks} /></div>}
         {tab === 'route' && <><ElevationProfile solved={activeSolved} /><Route run={activeRun} solved={activeSolved} addStation={addStation} edit={(index) => { setStationIndex(index); changeTab('measure'); }} remove={deleteStation} onOpenSettings={() => openRunSettings(activeRun.id)} /></>}
         <div hidden={tab !== 'result'}><Results key={book.id} book={book} solvedRuns={solvedRuns} /></div>
         <div hidden={tab !== 'files'}><Files key={book.id} book={book} books={books} library={library} updateBook={updateBook} newBook={newBook} save={save} saveAs={saveAs} exportExcel={() => exportReport('xlsx')} exportPdf={() => exportReport('pdf')} backupAll={backupAll} exporting={exporting} fileRef={fileRef} importFile={importFile} availablePoints={availablePoints} setDialog={setDialog} outdoor={outdoor} setOutdoor={setOutdoor} /></div>
@@ -884,7 +912,7 @@ function StartSession({ book, run, onStart, onManageBenchmarks }) {
   </form>;
 }
 
-function Measure({ book, runs, availablePoints, run, solved, index, setIndex, updateStation, finish, changeMode, checksRequested, saveState, onSelectRun, onOpenSettings, onUndo, undoEntry, onRequestClear, onStart, onManageBenchmarks }) {
+function Measure({ book, runs, availablePoints, run, solved, index, setIndex, updateStation, onChangePointType, finish, changeMode, checksRequested, saveState, onSelectRun, onOpenSettings, onUndo, undoEntry, onRequestClear, onStart, onManageBenchmarks }) {
   const station = run.stations[index];
   const row = solved.rows[index];
   if (!station) return null;
@@ -899,6 +927,7 @@ function Measure({ book, runs, availablePoints, run, solved, index, setIndex, up
   const unresolved = row?.elevation === null || row?.elevation === undefined;
   const elevationText = unresolved ? 'Chưa xác định' : `${formatElevation(row.elevation)} m`;
   const isSide = pointType === POINT_TYPE_SIDE;
+  const sharedBacksight = isSide && station.backsightMode === 'shared';
 
   return (
     <section className="measure-shell">
@@ -926,11 +955,12 @@ function Measure({ book, runs, availablePoints, run, solved, index, setIndex, up
             <div className={`reading-grid readings${run.mode === 'three' ? ' is-three' : ''}`}>
               {run.mode === 'single' ? <>
                 <div className="reading reading-bs"><div className="reading-title"><span>Mia sau<small>Số đọc theo mét</small></span><em>BS</em></div>
-                  <MeterInput className="hero-input" data-reading="bs" staffReading aria-label="Số đọc mia sau BS theo mét" aria-invalid={checksRequested && inspection.errors.some((item) => item.field === 'bs')} enterKeyHint="next" value={station.bs} onValueChange={(value) => update('bs', value)} confirmClear={confirmClear('bs', 'số đọc mia sau BS')} onFocus={(event) => event.target.select()} /></div>
+                  <MeterInput className="hero-input" data-reading="bs" readOnly={sharedBacksight} staffReading aria-label="Số đọc mia sau BS theo mét" aria-invalid={checksRequested && inspection.errors.some((item) => item.field === 'bs')} enterKeyHint="next" value={station.bs} onValueChange={(value) => update('bs', value)} confirmClear={confirmClear('bs', 'số đọc mia sau BS')} onFocus={(event) => event.target.select()} /></div>
                 <div className="reading reading-fs"><div className="reading-title"><span>Mia trước<small>Số đọc theo mét</small></span><em>FS</em></div>
                   <MeterInput className="hero-input" data-reading="fs" staffReading aria-label="Số đọc mia trước FS theo mét" aria-invalid={checksRequested && inspection.errors.some((item) => item.field === 'fs')} enterKeyHint="done" value={station.fs} onValueChange={(value) => update('fs', value)} confirmClear={confirmClear('fs', 'số đọc mia trước FS')} onComplete={finish} onFocus={(event) => event.target.select()} /></div>
-              </> : <ThreeReadingMatrix station={station} row={row} update={update} confirmClear={confirmClear} finish={finish} />}
+              </> : <ThreeReadingMatrix station={station} row={row} update={update} confirmClear={confirmClear} finish={finish} sharedBacksight={sharedBacksight} />}
             </div>
+            {sharedBacksight && <div className="shared-backsight-note"><span>Mia sau dùng lại · {row?.fromName}. Chỉ nhập mia trước.</span><button type="button" onClick={() => onChangePointType(run, station.id, POINT_TYPE_SIDE, true)}>Đã chuyển máy · Nhập mới</button></div>}
             <div className="result-strip" aria-label="Kết quả tính tức thời">
               <div><span>H tới · {displayPoint}</span><strong className="numeric">{elevationText}</strong></div>
               <div><span>Chênh cao · Δh</span><b className="numeric">{formatSignedMillimeters(row?.delta)} <small>mm</small></b></div>
@@ -939,8 +969,8 @@ function Measure({ book, runs, availablePoints, run, solved, index, setIndex, up
           </div>
           <div className="pointbox">
             <div className="point-type-toggle" role="group" aria-label="Chọn loại điểm tới">
-              <button type="button" aria-pressed={!isSide} className={!isSide ? 'active' : ''} onClick={() => update('pointType', POINT_TYPE_TURNING)}>Điểm chuyền</button>
-              <button type="button" aria-pressed={isSide} className={isSide ? 'active' : ''} onClick={() => update('pointType', POINT_TYPE_SIDE)}>Tia phụ</button>
+              <button type="button" aria-pressed={!isSide} className={!isSide ? 'active' : ''} onClick={() => onChangePointType(run, station.id, POINT_TYPE_TURNING)}>Điểm chuyền</button>
+              <button type="button" aria-pressed={isSide} className={isSide ? 'active' : ''} onClick={() => onChangePointType(run, station.id, POINT_TYPE_SIDE)}>Tia phụ</button>
             </div>
             <p className="point-type-note">{isSide ? 'Lưu tia phụ: giữ nguyên điểm đặt mia sau.' : 'Lưu điểm chuyền: chuyển điểm đặt mia sau tới điểm mới.'}</p>
             <div className="point-entry"><span>Điểm tới</span><PointCombobox key={station.id} ariaLabel="Điểm tới" options={availablePoints} scopeKey={book.id} placeholder={autoName} value={station.point} onValueChange={(value) => update('point', value)} /></div>
@@ -971,7 +1001,7 @@ function CaptureDock({ book, run, solved, index, setIndex, finish }) {
     <div className="field-actions"><button className="step-button" aria-label="Trạm trước" title="Trạm trước" onClick={() => setIndex(Math.max(0, index - 1))} disabled={index === 0}><ChevronLeft /></button><button type="button" className="primary finish" onClick={finish}><Check />{station.committedAt ? 'Cập nhật trạm' : 'Lưu trạm'}</button><button className="step-button" aria-label="Trạm tiếp theo" title="Trạm tiếp theo" onClick={() => setIndex(Math.min(run.stations.length - 1, index + 1))} disabled={index === run.stations.length - 1}><ChevronRight /></button></div>
   </div>;
 }
-function ThreeReadingMatrix({ station, row, update, confirmClear, finish }) {
+function ThreeReadingMatrix({ station, row, update, confirmClear, finish, sharedBacksight = false }) {
   return (
     <div className="reading three-reading-matrix">
       <div className="three-matrix-head" aria-hidden="true"><span>Chỉ</span><b>Mia sau <em>BS</em></b><b>Mia trước <em>FS</em></b></div>
@@ -983,7 +1013,7 @@ function ThreeReadingMatrix({ station, row, update, confirmClear, finish }) {
               const field = `${prefix}${suffix}`;
               const title = prefix === 'bs' ? 'Mia sau' : 'Mia trước';
               const isLast = prefix === 'fs' && suffix === 'Lower';
-              return <MeterInput key={field} data-reading={field} staffReading autoComplete="off" spellCheck={false} aria-label={`${title} chỉ ${label.toLowerCase()} theo mét`} enterKeyHint={isLast ? 'done' : 'next'} value={station[field]} onValueChange={(value) => update(field, value)} confirmClear={confirmClear(field, `${title.toLowerCase()} chỉ ${label.toLowerCase()}`)} onComplete={isLast ? finish : undefined} />;
+              return <MeterInput key={field} data-reading={field} readOnly={sharedBacksight && prefix === 'bs'} staffReading autoComplete="off" spellCheck={false} aria-label={`${title} chỉ ${label.toLowerCase()} theo mét`} enterKeyHint={isLast ? 'done' : 'next'} value={station[field]} onValueChange={(value) => update(field, value)} confirmClear={confirmClear(field, `${title.toLowerCase()} chỉ ${label.toLowerCase()}`)} onComplete={isLast ? finish : undefined} />;
             })}
           </div>
         ))}

@@ -14,6 +14,7 @@ import {
   POINT_TYPE_TURNING,
 } from './pointNames';
 import { normalizeLevelingClass } from './levelingStandards';
+import { shareBacksight, withInheritedBacksights } from './stationSetup';
 
 export const STORAGE_KEYS = {
   books: 'so-thuy-chuan.books.v2',
@@ -22,7 +23,7 @@ export const STORAGE_KEYS = {
   exports: 'so-thuy-chuan.export-names.v2'
 };
 
-export const BOOK_SCHEMA_VERSION = 7;
+export const BOOK_SCHEMA_VERSION = 8;
 export const START_MODE_KNOWN = 'known';
 export const START_MODE_UNKNOWN = 'unknown';
 export const normalizeStartMode = (value) => value === START_MODE_UNKNOWN ? START_MODE_UNKNOWN : START_MODE_KNOWN;
@@ -118,7 +119,7 @@ export function normalizeBook(raw = {}) {
     }),
     runs: (source.runs || []).map((run, index) => {
       const storedRoundNumber = Number(run.roundNumber);
-      return { ...createRun(index + 1), ...run, id: run.id || uid(), roundNumber: Number.isInteger(storedRoundNumber) && storedRoundNumber > 0 ? storedRoundNumber : index + 1, startPoint: uppercaseName(run.startPoint).trim(), startMode: normalizeStartMode(run.startMode), mode: run.mode === 'three' ? 'three' : 'single', stations: (run.stations || []).map((s) => ({ ...createStation(), ...s, id: s.id || uid(), point: uppercaseName(s.point).trim(), pointType: normalizePointType(s.pointType) })) };
+      return withInheritedBacksights({ ...createRun(index + 1), ...run, id: run.id || uid(), roundNumber: Number.isInteger(storedRoundNumber) && storedRoundNumber > 0 ? storedRoundNumber : index + 1, startPoint: uppercaseName(run.startPoint).trim(), startMode: normalizeStartMode(run.startMode), mode: run.mode === 'three' ? 'three' : 'single', stations: (run.stations || []).map((s) => ({ ...createStation(), ...s, id: s.id || uid(), point: uppercaseName(s.point).trim(), pointType: normalizePointType(s.pointType) })) });
     }),
     settings: { ...base.settings, ...(source.settings || {}), measurementClass: normalizeLevelingClass(source.settings?.measurementClass) }, createdAt: source.createdAt || Date.now(), updatedAt: source.updatedAt || Date.now()
   };
@@ -149,6 +150,7 @@ export function stationReadings(station, mode) {
 }
 
 export function solveRun(run, benchmarks) {
+  run = withInheritedBacksights(run);
   const startPoint = uppercaseName(run.startPoint).trim();
   const startMode = normalizeStartMode(run.startMode);
   const pointStates = [{ name: startPoint, relative: 0, index: 0, pointType: POINT_TYPE_TURNING }];
@@ -161,10 +163,17 @@ export function solveRun(run, benchmarks) {
     const delta = reading.bs !== null && reading.fs !== null ? reading.bs - reading.fs : null;
     const point = uppercaseName(station.point).trim();
     const pointType = normalizePointType(station.pointType);
-    const relative = origin.relative === null || delta === null ? null : origin.relative + delta;
+    let readingOrigin = origin;
+    if (pointType === POINT_TYPE_SIDE && station.backsightMode === 'shared') {
+      const sourceRow = readingRows.find((row) => row.id === station.backsightSourceId);
+      const originState = [...chainStates].reverse().find((item) => item.name === station.backsightOriginPoint);
+      readingOrigin = sourceRow ? { name: sourceRow.fromName, relative: sourceRow.fromRelative }
+        : { name: station.backsightOriginPoint, relative: originState?.relative ?? null };
+    }
+    const relative = readingOrigin.relative === null || delta === null ? null : readingOrigin.relative + delta;
     const state = { name: point, relative, index: index + 1, pointType };
     if (point) pointStates.push(state);
-    readingRows.push({ ...station, ...reading, delta, point, pointType, fromName: origin.name, fromRelative: origin.relative, relative, index });
+    readingRows.push({ ...station, ...reading, delta, point, pointType, fromName: readingOrigin.name, fromRelative: readingOrigin.relative, relative, index });
     if (pointType === POINT_TYPE_TURNING && point) {
       chainStates.push(state);
       origin = { name: point, relative };
@@ -384,6 +393,7 @@ export function adjustLevelingNetwork(solvedRuns, benchmarks, coefficient = 20) 
 }
 
 export function finalizeStation(run, stationIndex, fallbackPoint = '') {
+  run = withInheritedBacksights(run);
   const station = run.stations[stationIndex];
   if (!station) return { committed: false, stations: run.stations, nextIndex: stationIndex };
   const point = uppercaseName(station.point).trim() || uppercaseName(fallbackPoint).trim();
@@ -391,7 +401,10 @@ export function finalizeStation(run, stationIndex, fallbackPoint = '') {
   const pointType = normalizePointType(station.pointType);
   const stations = run.stations.map((item, index) => index === stationIndex ? { ...item, point, pointType } : item);
   const appended = stationIndex === stations.length - 1;
-  if (appended) stations.push(createStation('', pointType));
+  if (appended) {
+    const next = createStation('', pointType);
+    stations.push(pointType === POINT_TYPE_SIDE ? shareBacksight({ ...run, stations }, stations.length, next) : next);
+  }
   return { committed: true, stations, nextIndex: appended ? stations.length - 1 : stationIndex + 1, point, pointType, appended };
 }
 

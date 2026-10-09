@@ -58,6 +58,10 @@ export function collectSelectableControlPoints(book) {
 }
 
 export function stationOrigin(run, stationIndex) {
+  const current = run?.stations?.[stationIndex];
+  if (normalizePointType(current?.pointType) === POINT_TYPE_SIDE && current?.backsightMode === 'shared' && cleanPointName(current.backsightOriginPoint)) {
+    return cleanPointName(current.backsightOriginPoint);
+  }
   let origin = cleanPointName(run?.startPoint);
   const stations = run?.stations || [];
   for (let index = 0; index < Math.min(stationIndex, stations.length); index += 1) {

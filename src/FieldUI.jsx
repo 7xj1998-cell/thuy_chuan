@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { X, Activity, ShieldAlert, TriangleAlert, ChevronLeft, ChevronRight } from './icons';
 import { formatElevation } from './units';
 
-export function ConfirmDialog({ title, description, messages = [], confirmLabel = 'Xác nhận', onConfirm, onClose }) {
+export function ConfirmDialog({ title, description, messages = [], confirmLabel = 'Xác nhận', onConfirm, onClose, alternativeLabel, onAlternative }) {
   const ref = useRef(null);
   const headingId = useId();
   useEffect(() => {
@@ -25,7 +25,7 @@ export function ConfirmDialog({ title, description, messages = [], confirmLabel 
       <div className="card-title"><h2 id={headingId}>{title}</h2><button onClick={onClose} aria-label="Đóng hộp thoại"><X /></button></div>
       <p>{description}</p>
       {messages.length > 0 && <ul>{messages.map((message, index) => <li key={index}>{message}</li>)}</ul>}
-      <div className="quality-actions"><button onClick={onClose}>Quay lại</button><button className="primary" onClick={onConfirm}>{confirmLabel}</button></div>
+      <div className={`quality-actions${onAlternative ? ' has-alternative' : ''}`}><button onClick={onClose}>Quay lại</button>{onAlternative && <button onClick={onAlternative}>{alternativeLabel}</button>}<button className="primary" onClick={onConfirm}>{confirmLabel}</button></div>
     </section>
   </div>;
 }

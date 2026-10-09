@@ -62,6 +62,9 @@ function validateBook(raw) {
     run.stations.forEach((station) => {
       if (!isObject(station)) fail('Trạm đo không hợp lệ.');
       checkText(station.point, 'Điểm tới');
+      checkText(station.backsightSourceId, 'Trạm gốc mia sau');
+      checkText(station.backsightOriginPoint, 'Gốc mia sau');
+      if (station.backsightMode !== undefined && !['shared', 'manual'].includes(station.backsightMode)) fail('Cách nhập mia sau không hợp lệ.');
       if (station.pointType !== undefined && !['turning', 'side'].includes(station.pointType)) fail('Loại điểm đo không hợp lệ.');
       ['bs', 'fs', 'distance', 'bsUpper', 'bsMiddle', 'bsLower', 'fsUpper', 'fsMiddle', 'fsLower'].forEach((field) => checkNumericDraft(station[field], 'Số đọc'));
     });

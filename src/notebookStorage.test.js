@@ -90,7 +90,7 @@ describe('thư viện tự lưu và nhập tệp an toàn', () => {
     const migrated = createNotebookLibrary(storage);
     expect(migrated.initialize()).toBe(true);
     expect(saved(storage).schemaVersion).toBe(7);
-    expect(active(storage).schemaVersion).toBe(7);
+    expect(active(storage).schemaVersion).toBe(8);
     expect(active(storage).runs.every((run) => run.startMode === 'known')).toBe(true);
     const once = storage.getItem(LIBRARY_KEYS.primary);
     expect(createNotebookLibrary(storage).initialize()).toBe(true);

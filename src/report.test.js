@@ -4,6 +4,18 @@ import { POINT_TYPE_SIDE } from './pointNames';
 import { createExcelWorkbook } from './report';
 
 describe('báo cáo Excel kỹ thuật', () => {
+  it('xuất đúng mia sau dùng chung và gốc đặt máy cho TP sau điểm chuyền', async () => {
+    const book = normalizeBook({ schemaVersion: 8, benchmarks: [{ name: '4.1', elevation: '3,188' }], runs: [{
+      id: 'r4', name: 'Lượt 4', roundNumber: 4, startPoint: '4.1', mode: 'three', stations: [
+        { ...createStation('DG4L1'), id: 'root', committedAt: 1, bsUpper: '1,024', bsMiddle: '0,900', bsLower: '0,776', fsUpper: '1,632', fsMiddle: '1,538', fsLower: '1,442' },
+        { ...createStation('DG4L2', 'side'), fsUpper: '1,181', fsMiddle: '1,081', fsLower: '0,981' },
+      ],
+    }] });
+    const { XLSX, workbook } = await createExcelWorkbook(book, book.runs.map((run) => solveRun(run, book.benchmarks)));
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets['Lượt 4']);
+    expect(rows[1]).toMatchObject({ 'Điểm sau': '4.1', 'H sau (m)': 3.188, 'BS trên (m)': 1.024, 'BS giữa (m)': 0.9, 'BS dưới (m)': 0.776, 'FS (m)': 1.081, 'H trước (m)': 3.007 });
+    expect(JSON.parse(workbook.Props.Comments).runs[0].stations[1].backsightSourceId).toBe('root');
+  });
   it('giữ ô số ở dạng số và chuẩn hóa H/BS/FS theo mét, Δh theo mm', async () => {
     const initial = createBook();
     const book = normalizeBook({
